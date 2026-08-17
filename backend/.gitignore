@@ -1,0 +1,12 @@
+.venv/
+data/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.uv/
+
+# 测试与质量工具产物
+.coverage
+htmlcov/
+.ruff_cache/

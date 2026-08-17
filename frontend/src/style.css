@@ -1,0 +1,366 @@
+/* GeoAgent 全局样式：左侧会话列表 + 右侧会话窗口 */
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', system-ui, sans-serif;
+  color: #1f2937;
+  background: #f3f4f6;
+}
+
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+/* ---- 左侧会话列表 ---- */
+.sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #111827;
+  color: #e5e7eb;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+}
+
+.logo {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.new-btn {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: #374151;
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+}
+
+.new-btn:hover {
+  background: #4b5563;
+}
+
+.conv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.conv-list li {
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+
+.conv-list li:hover {
+  background: #1f2937;
+}
+
+.conv-list li.active {
+  background: #374151;
+}
+
+.conv-title {
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.conv-meta {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.sidebar-footer {
+  padding: 10px 16px;
+  font-size: 12px;
+  color: #6b7280;
+  border-top: 1px solid #1f2937;
+}
+
+/* ---- 右侧会话窗口 ---- */
+.chat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #ffffff;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.chat-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.model-select {
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.error-banner {
+  margin: 8px 16px 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 13px;
+}
+
+.messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.empty-hint {
+  color: #9ca3af;
+  text-align: center;
+  margin-top: 80px;
+}
+
+.msg {
+  margin-bottom: 16px;
+}
+
+.msg-route {
+  font-size: 12px;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+.bubble {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+.user-bubble {
+  margin-left: auto;
+  background: #2563eb;
+  color: #ffffff;
+  border-bottom-right-radius: 4px;
+}
+
+.assistant-bubble {
+  background: #f3f4f6;
+  border-bottom-left-radius: 4px;
+}
+
+.cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: #2563eb;
+  animation: blink 1s steps(2) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ---- 工具卡片与可视化 ---- */
+.tool-card {
+  margin-top: 8px;
+  max-width: 720px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fafafa;
+}
+
+.tool-card.error {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.tool-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.tool-icon.pulse {
+  animation: blink 1s steps(2) infinite;
+}
+
+.tool-name {
+  font-weight: 600;
+  font-family: Consolas, 'Courier New', monospace;
+}
+
+.tool-status {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #e5e7eb;
+  color: #4b5563;
+}
+
+.tool-status.running {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.tool-status.done {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.tool-status.error {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.tool-args {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.tool-args pre {
+  font-size: 12px;
+  background: #f3f4f6;
+  padding: 8px;
+  border-radius: 6px;
+  overflow-x: auto;
+  max-width: 600px;
+}
+
+.tool-result-text {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #374151;
+  white-space: pre-wrap;
+}
+
+.artifact {
+  margin-top: 10px;
+}
+
+.mini-map {
+  width: 100%;
+  height: 240px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #e8edf3;
+  border: 1px solid #e5e7eb;
+}
+
+.artifact-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.artifact-table th,
+.artifact-table td {
+  border: 1px solid #e5e7eb;
+  padding: 6px 8px;
+  text-align: left;
+}
+
+.artifact-table th {
+  background: #f9fafb;
+}
+
+.artifact-json {
+  font-size: 12px;
+  background: #f9fafb;
+  padding: 10px;
+  border-radius: 8px;
+  overflow-x: auto;
+}
+
+.artifact-name {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.tool-standalone {
+  border-left: 3px solid #d1d5db;
+  padding-left: 12px;
+}
+
+/* ---- 输入区 ---- */
+.composer {
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid #e5e7eb;
+  background: #ffffff;
+}
+
+.composer textarea {
+  flex: 1;
+  resize: none;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.composer textarea:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+
+.send-btn {
+  align-self: flex-end;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 10px;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.send-btn:disabled {
+  background: #93c5fd;
+  cursor: not-allowed;
+}
