@@ -364,3 +364,72 @@ body {
   background: #93c5fd;
   cursor: not-allowed;
 }
+
+/* ---- 任务清单 ---- */
+.msg-todos {
+  list-style: none;
+  margin: 4px 0 8px;
+  padding: 0;
+}
+
+.msg-todos li {
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.6;
+}
+
+.todo-pending::before {
+  content: '○ ';
+  color: #9ca3af;
+}
+
+.todo-in_progress::before {
+  content: '◐ ';
+  color: #2563eb;
+}
+
+.todo-completed::before {
+  content: '● ';
+  color: #16a34a;
+}
+
+.todo-completed {
+  text-decoration: line-through;
+  color: #9ca3af !important;
+}
+
+/* ---- 子任务（subagent）---- */
+.subagent-block {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-left: 3px solid #2563eb;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: 13px;
+}
+
+.subagent-block.subagent-done {
+  border-left-color: #16a34a;
+}
+
+.subagent-block.subagent-error {
+  border-left-color: #dc2626;
+}
+
+.subagent-head {
+  font-weight: 600;
+  color: #111827;
+  margin-bottom: 2px;
+}
+
+.subagent-prompt {
+  color: #374151;
+  margin-bottom: 2px;
+}
+
+.subagent-result {
+  color: #6b7280;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

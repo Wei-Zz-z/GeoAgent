@@ -12,6 +12,8 @@
   每个会话可单独切换模型，Agent 也可固定自己的模型。
 - **工具注册**：装饰器注册 + Pydantic 参数校验，自动生成 LLM function schema；
   工具结果携带 `artifacts`（GeoJSON/表格等），供前端在会话窗口内可视化。
+- **Agent 内置机制**：todo_write 任务清单（含 reminder）、task 子 Agent（全新上下文）、
+  list_skills / load_skill 技能按需加载（目录注入 system prompt，全文按需读取）。
 - **多会话**：会话与消息持久化到 `data/conversations/*.jsonl`（未做登录，dev 模式全局可见）。
 
 ## 快速开始
@@ -29,7 +31,7 @@ uv run --env-file .env uvicorn geoagent.server.app:app --reload --port 8000
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/health` | 健康检查 |
-| GET | `/api/models` | 可用模型列表（含是否已配 key；已内置 OpenAI / 阿里千问 / 智谱 / DeepSeek） |
+| GET | `/api/models` | 可用模型列表（含是否已配 key；已内置阿里千问 qwen3.7-flash / qwen3.7-plus） |
 | GET/POST | `/api/conversations` | 会话列表 / 创建会话 |
 | GET | `/api/conversations/{id}/messages` | 历史消息（含 artifacts） |
 | PUT | `/api/conversations/{id}/model` | 切换该会话的模型 |
@@ -48,6 +50,9 @@ uv run --env-file .env uvicorn geoagent.server.app:app --reload --port 8000
 | `tool_call` | 服务端→客户端 | `id`, `name`, `arguments` | 正在调用工具 |
 | `tool_result` | 服务端→客户端 | `id`, `name`, `is_error`, `content` | 工具执行结果（摘要文本） |
 | `artifact` | 服务端→客户端 | `kind`, `name`, `data` | 可视化产物（geojson / table 等） |
+| `todo` | 服务端→客户端 | `todos` | 任务清单整体更新（todo_write） |
+| `subagent_start` | 服务端→客户端 | `id`, `prompt` | 子 Agent 开始运行（task） |
+| `subagent_end` | 服务端→客户端 | `id`, `is_error`, `content` | 子 Agent 结束并返回最终文本 |
 | `message` | 服务端→客户端 | `role`, `content`, `model` | 最终助手消息 |
 | `error` | 服务端→客户端 | `message` | 错误信息 |
 | `turn_end` | 服务端→客户端 | `conversation_id` | 一轮对话结束 |
@@ -81,8 +86,8 @@ node scripts/smoke.mjs
 from geoagent.agents import build_geo_graph
 
 # RouterNode 判断意图 -> "geo" 走 GeoAgent，否则 ChatAgent
-router = RouterNode(model="gpt-4o-mini")
-geo = GeoAgent(model="gpt-4o")
+router = RouterNode(model="qwen3.7-flash")
+geo = GeoAgent(model="qwen3.7-plus")
 chat = ChatAgent()
 router - "geo" >> geo
 router - "chat" >> chat

@@ -44,6 +44,8 @@ function buildRenderMessages(rawMessages) {
         content: m.content || '',
         streaming: false,
         route: '',
+        todos: Array.isArray(m.todos) ? m.todos : [],
+        subagents: Array.isArray(m.subagents) ? m.subagents : [],
         toolCalls: (m.tool_calls || []).map((tc) => ({
           id: tc.id,
           name: tc.function?.name || 'tool',
@@ -115,6 +117,8 @@ function handleEvent(event) {
         content: '',
         streaming: true,
         route: '',
+        todos: [],
+        subagents: [],
         toolCalls: [],
         artifacts: [],
       }
@@ -123,6 +127,27 @@ function handleEvent(event) {
     case 'route':
       if (chat._streamAssistant) chat._streamAssistant.route = event.target || ''
       break
+    case 'todo':
+      if (chat._streamAssistant) chat._streamAssistant.todos = event.todos || []
+      break
+    case 'subagent_start':
+      if (chat._streamAssistant) {
+        chat._streamAssistant.subagents.push({
+          id: event.id,
+          prompt: event.prompt || '',
+          status: 'running',
+          content: '',
+        })
+      }
+      break
+    case 'subagent_end': {
+      const sub = chat._streamAssistant?.subagents.find((s) => s.id === event.id)
+      if (sub) {
+        sub.status = event.is_error ? 'error' : 'done'
+        sub.content = event.content || ''
+      }
+      break
+    }
     case 'token':
       if (chat._streamAssistant) chat._streamAssistant.content += event.delta || ''
       break

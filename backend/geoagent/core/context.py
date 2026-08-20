@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Optional
 
 from .events import Event
@@ -22,6 +22,10 @@ class ConversationContext:
     store: Any  # 类型：memory.store.ConversationStore
     memory: Optional[Any] = None  # 类型：memory.memory.MemoryProvider（长期记忆，后续实现）
     event_sink: Optional[EventSink] = None
+    todos: list[dict[str, str]] = field(default_factory=list)
+    skills: Any = None  # 类型：skills.SkillLoader（技能加载器）
+    subagent_depth: int = 0
+    subagents: list[dict[str, Any]] = field(default_factory=list)
 
     async def emit(self, event: Event) -> None:
         if self.event_sink is not None:

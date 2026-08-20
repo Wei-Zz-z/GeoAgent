@@ -15,7 +15,7 @@ async function main() {
     await fetch(`${BASE}/conversations`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'smoke', model: 'qwen-flash' }),
+      body: JSON.stringify({ title: 'smoke', model: 'qwen3.7-flash' }),
     })
   ).json()
   console.log('conversation:', conv.id, conv.model)

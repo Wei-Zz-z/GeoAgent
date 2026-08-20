@@ -28,7 +28,7 @@ class ConversationSession:
 
     max_messages: int = 30
     recent_window: int = 10
-    tool_max_chars: int = 1200
+    tool_max_chars: int = 6000
     assistant_max_chars: int = 2000
     rolling_summary_max_chars: int = 4000
     store: Any = None
@@ -50,7 +50,8 @@ class ConversationSession:
     def add_tool(self, tool_message: dict[str, Any]) -> None:
         content = str(tool_message.get("content", ""))
         if len(content) > self.tool_max_chars:
-            head, tail = content[:900], content[-200:]
+            head = content[: max(100, self.tool_max_chars - 200)]
+            tail = content[-200:]
             content = (
                 f"{head}\n...\n{tail}\n\n"
                 f"[Tool output truncated: {len(tool_message.get('content', ''))} chars]"

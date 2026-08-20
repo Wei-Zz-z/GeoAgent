@@ -28,34 +28,6 @@ class ModelProfile:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-        "qwen-flash": ModelProfile(
-            id="qwen-flash",
-            provider="openai_compatible",
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            api_key_env="OPENAI_API_KEY",
-            description="Alibaba Qwen3-Flash (DashScope, free tier)",
-        ),
-        "qwen-turbo": ModelProfile(
-            id="qwen-turbo",
-            provider="openai_compatible",
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            api_key_env="OPENAI_API_KEY",
-            description="Alibaba Qwen3-Turbo (DashScope)",
-        ),
-        "qwen-plus": ModelProfile(
-            id="qwen-plus",
-            provider="openai_compatible",
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            api_key_env="OPENAI_API_KEY",
-            description="Alibaba Qwen3-Plus (DashScope)",
-        ),
-        "qwen-max": ModelProfile(
-            id="qwen-max",
-            provider="openai_compatible",
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            api_key_env="OPENAI_API_KEY",
-            description="Alibaba Qwen3-Max (DashScope)",
-        ),
             "id": self.id,
             "provider": self.provider,
             "base_url": self.base_url,
@@ -68,61 +40,19 @@ class ModelProfile:
 def default_model_registry() -> dict[str, ModelProfile]:
     """内置模型注册表。新增模型时在此追加一个 ModelProfile。"""
     return {
-        "qwen-flash": ModelProfile(
-            id="qwen-flash",
+        "qwen3.7-flash": ModelProfile(
+            id="qwen3.7-flash",
             provider="openai_compatible",
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
             api_key_env="OPENAI_API_KEY",
-            description="Alibaba Qwen3-Flash (DashScope, free tier)",
+            description="Alibaba Qwen3.7-Flash (DashScope)",
         ),
-        "qwen-turbo": ModelProfile(
-            id="qwen-turbo",
+        "qwen3.7-plus": ModelProfile(
+            id="qwen3.7-plus",
             provider="openai_compatible",
             base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
             api_key_env="OPENAI_API_KEY",
-            description="Alibaba Qwen3-Turbo (DashScope)",
-        ),
-        "qwen-plus": ModelProfile(
-            id="qwen-plus",
-            provider="openai_compatible",
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            api_key_env="OPENAI_API_KEY",
-            description="Alibaba Qwen3-Plus (DashScope)",
-        ),
-        "qwen-max": ModelProfile(
-            id="qwen-max",
-            provider="openai_compatible",
-            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-            api_key_env="OPENAI_API_KEY",
-            description="Alibaba Qwen3-Max (DashScope)",
-        ),
-        "gpt-4o-mini": ModelProfile(
-            id="gpt-4o-mini",
-            provider="openai",
-            api_key_env="OPENAI_API_KEY",
-            temperature=0.7,
-            description="OpenAI GPT-4o mini (cheap & fast)",
-        ),
-        "gpt-4o": ModelProfile(
-            id="gpt-4o",
-            provider="openai",
-            api_key_env="OPENAI_API_KEY",
-            temperature=0.7,
-            description="OpenAI GPT-4o",
-        ),
-        "glm-4.7-flash": ModelProfile(
-            id="glm-4.7-flash",
-            provider="openai_compatible",
-            base_url="https://open.bigmodel.cn/api/paas/v4/",
-            api_key_env="ZHIPU_API_KEY",
-            description="Zhipu GLM-4.7-Flash (OpenAI-compatible)",
-        ),
-        "deepseek-chat": ModelProfile(
-            id="deepseek-chat",
-            provider="openai_compatible",
-            base_url="https://api.deepseek.com",
-            api_key_env="DEEPSEEK_API_KEY",
-            description="DeepSeek chat (OpenAI-compatible)",
+            description="Alibaba Qwen3.7-Plus (DashScope)",
         ),
     }
 
@@ -133,8 +63,10 @@ class Settings:
     def __init__(self) -> None:
         default_data_dir = Path(__file__).resolve().parent.parent / "data"
         self.data_dir = Path(os.getenv("GEOAGENT_DATA_DIR", str(default_data_dir)))
-        self.default_model = os.getenv("GEOAGENT_DEFAULT_MODEL", "qwen-flash")
+        self.default_model = os.getenv("GEOAGENT_DEFAULT_MODEL", "qwen3.7-plus")
         self.router_model = os.getenv("GEOAGENT_ROUTER_MODEL", "")
+        default_skills_dir = Path(__file__).resolve().parent.parent.parent / "skills"
+        self.skills_dir = Path(os.getenv("GEOAGENT_SKILLS_DIR", str(default_skills_dir)))
         self.model_registry = default_model_registry()
 
     def profile(self, model_id: str) -> ModelProfile:
