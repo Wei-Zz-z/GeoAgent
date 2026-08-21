@@ -108,6 +108,7 @@ async def send_message(
         memory=NoopMemory(),
         event_sink=None,
         skills=request.app.state.skills,
+        transcripts_dir=request.app.state.settings.data_dir / "transcripts",
     )
     try:
         flow = build_geo_graph(router_model=request.app.state.settings.router_model or None)
@@ -142,6 +143,7 @@ async def chat_ws(websocket: WebSocket, conversation_id: str) -> None:
         memory=NoopMemory(),
         event_sink=lambda event: _ws_send(websocket, event),
         skills=app.state.skills,
+        transcripts_dir=app.state.settings.data_dir / "transcripts",
     )
     try:
         while True:

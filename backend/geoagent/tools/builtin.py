@@ -84,6 +84,10 @@ class LoadSkillParams(BaseModel):
     )
 
 
+class CompactParams(BaseModel):
+    """compact 工具参数（空）。"""
+
+
 def render_todos(todos: list[dict[str, str]]) -> str:
     """把任务列表渲染成给 LLM / 前端的文本视图。"""
     return "\n".join(
@@ -114,8 +118,8 @@ async def todo_write(ctx: Any, todos: list[dict[str, str]]) -> ToolResult:
 
 
 def get_builtin_tools() -> list[Any]:
-    """返回全部内置工具（当前：todo_write / task / list_skills / load_skill）。"""
-    return get_tools("todo_write", "task", "list_skills", "load_skill")
+    """返回全部内置工具（当前：todo_write / task / list_skills / load_skill / compact）。"""
+    return get_tools("todo_write", "task", "list_skills", "load_skill", "compact")
 
 
 @register_tool(
@@ -216,4 +220,23 @@ async def load_skill(ctx: Any, name: str) -> ToolResult:
         tool_call_id="",
         name="load_skill",
         content=f"技能 `{name}` 已加载：\n\n{content}",
+    )
+
+
+@register_tool(
+    "compact",
+    (
+        "Summarize the earlier conversation to free context space. "
+        "Call it after finishing a phase when the remaining work only needs a "
+        "summary of what has been done."
+    ),
+    CompactParams,
+)
+async def compact(ctx: Any) -> ToolResult:
+    """主动请求压缩较早的对话历史（在当前工具批次执行完后生效）。"""
+    ctx.compact_requested = True
+    return ToolResult(
+        tool_call_id="",
+        name="compact",
+        content="压缩请求已记录，将在本轮工具执行完成后压缩较早对话。",
     )

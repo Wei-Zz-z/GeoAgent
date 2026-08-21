@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from ..memory.compactor import ContextCompactor
 from ..tools.builtin import get_builtin_tools
 from ..tools.executor import ToolExecutor
 from ..tools.registry import Tool
@@ -68,8 +69,19 @@ class Agent(Node):
         final: Optional[AssistantMessage] = None
         rounds_since_todo = 0
         pending_reminder = False
+        reactive_done = False
+        compactor = ContextCompactor(
+            transcripts_dir=getattr(ctx, "transcripts_dir", None)
+        )
 
         for _ in range(self.max_turns):
+            # 每次调用模型前先执行四步压缩管线（参考 learn-claude-code s08）。
+            await compactor.prepare(
+                ctx.session.raw_messages(),
+                user_text,
+                ctx.llm,
+                model,
+            )
             memory_context = ""
             if ctx.memory is not None:
                 memory_context = await ctx.memory.build_context(user_text)
@@ -87,24 +99,43 @@ class Agent(Node):
                 messages.append({"role": "system", "content": REMINDER_MESSAGE})
                 pending_reminder = False
 
-            if ctx.event_sink is not None:
-                async def on_token(delta: str) -> None:
-                    await ctx.emit(Event("token", {"delta": delta}))
+            try:
+                if ctx.event_sink is not None:
+                    async def on_token(delta: str) -> None:
+                        await ctx.emit(Event("token", {"delta": delta}))
 
-                final = await ctx.llm.stream_chat(
-                    model=model,
-                    messages=messages,
-                    tools=tool_schemas,
-                    temperature=self.temperature,
-                    on_token=on_token,
+                    final = await ctx.llm.stream_chat(
+                        model=model,
+                        messages=messages,
+                        tools=tool_schemas,
+                        temperature=self.temperature,
+                        on_token=on_token,
+                    )
+                else:
+                    final = await ctx.llm.chat(
+                        model=model,
+                        messages=messages,
+                        tools=tool_schemas,
+                        temperature=self.temperature,
+                    )
+            except Exception as exc:
+                lowered = str(exc).lower()
+                too_long = (
+                    "prompt_too_long" in lowered
+                    or "context length" in lowered
+                    or "too many tokens" in lowered
                 )
-            else:
-                final = await ctx.llm.chat(
-                    model=model,
-                    messages=messages,
-                    tools=tool_schemas,
-                    temperature=self.temperature,
-                )
+                if not reactive_done and too_long:
+                    # 补救一次：摘要旧历史后重试。
+                    reactive_done = True
+                    await compactor.reactive_compact(
+                        ctx.session.raw_messages(),
+                        user_text,
+                        ctx.llm,
+                        model,
+                    )
+                    continue
+                raise
 
             final_dict = final.to_dict()
             if ctx.todos:
@@ -139,6 +170,15 @@ class Agent(Node):
                 )
                 for artifact in result.artifacts:
                     await ctx.emit(Event("artifact", artifact.to_dict()))
+            if getattr(ctx, "compact_requested", False):
+                await compactor.compact_history(
+                    ctx.session.raw_messages(),
+                    user_text,
+                    ctx.llm,
+                    model,
+                    force=True,
+                )
+                ctx.compact_requested = False
             if used_todo:
                 rounds_since_todo = 0
             else:

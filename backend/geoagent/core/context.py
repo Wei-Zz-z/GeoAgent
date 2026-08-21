@@ -26,6 +26,8 @@ class ConversationContext:
     skills: Any = None  # 类型：skills.SkillLoader（技能加载器）
     subagent_depth: int = 0
     subagents: list[dict[str, Any]] = field(default_factory=list)
+    compact_requested: bool = False
+    transcripts_dir: Any = None  # 类型：Path（压缩归档/大结果转存目录）
 
     async def emit(self, event: Event) -> None:
         if self.event_sink is not None:

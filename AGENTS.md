@@ -48,8 +48,10 @@ GeoAgent 是一个**通过自然语言对话完成地理空间分析与业务问
   给前端渲染的 `artifacts`（geojson / table）。
 - **演示地理工具**（`tools/geo.py`）：list_datasets、load_dataset、buffer_point、
   polygon_area、distance_between_points（纯 Python，无 PyQGIS 依赖）。
-- **短期会话与持久化**（`memory/`）：消息窗口裁剪、规则滚动摘要、孤儿 tool 消息清理；
-  JSONL 会话存储；长期记忆接口占位（`MemoryProvider`）。
+- **上下文压缩与持久化**（`memory/`）：参考 learn-claude-code s08 的四步压缩管线
+  （大工具结果转存 → 旧消息归档 → 已读结果占位 → LLM 事实摘要），每次调用模型前执行，
+  API 报 prompt_too_long 时补救一次，`compact` 工具可主动压缩；
+  孤儿 tool 消息清理；JSONL 会话存储；长期记忆接口占位（`MemoryProvider`）。
 - **Agent 内置机制**（`core/agent.py` + `tools/builtin.py`）：所有 Agent 默认携带
   `todo_write` 任务清单工具（整体替换、上限 20 项、单 in_progress、内容非空）；
   多步任务时模型先规划再执行，连续多轮未更新清单会注入 reminder；
@@ -84,7 +86,7 @@ GeoAgent 是一个**通过自然语言对话完成地理空间分析与业务问
 ### 尚未完成 / 规划中
 
 - PyQGIS 真实空间分析（必须以 worker 进程方式接入，禁止直接 import 进 FastAPI 进程）
-- 长期记忆（记忆类型、检索、注入）与上下文压缩（LLM 滚动摘要）
+- 长期记忆（记忆类型、检索、注入）
 - 工具失败兜底机制（重试 → 换工具 → 澄清 → 询问用户）
 - 文件上传（shp / GeoJSON / CSV）与真实数据集管理
 - 前端完善：更多 artifact 类型（图片/图表）、地图交互、多轮上下文展示
@@ -303,3 +305,7 @@ GEOAGENT_SKILLS_DIR=
 8. **子 Agent 隔离上下文、技能按需加载**：子任务在全新消息窗口中执行，只返回最终
    文本，避免中间过程污染父上下文；技能目录常驻 system prompt、完整 SKILL.md 按需
    读取，避免把全部文档堆进提示词。
+9. **上下文压缩完全采用 learn-claude-code s08 的四步管线**：先做无模型调用的整理
+   （大工具结果转存到磁盘、中间历史归档到 transcripts、已读工具结果占位），
+   字符仍超限时才调用 LLM 生成只含事实的状态摘要，并用 [Compacted] 消息替换历史；
+   每次调用模型前执行，API 报 prompt_too_long 时补救一次，`compact` 工具可主动压缩。

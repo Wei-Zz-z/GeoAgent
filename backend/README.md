@@ -13,7 +13,9 @@
 - **工具注册**：装饰器注册 + Pydantic 参数校验，自动生成 LLM function schema；
   工具结果携带 `artifacts`（GeoJSON/表格等），供前端在会话窗口内可视化。
 - **Agent 内置机制**：todo_write 任务清单（含 reminder）、task 子 Agent（全新上下文）、
-  list_skills / load_skill 技能按需加载（目录注入 system prompt，全文按需读取）。
+  list_skills / load_skill 技能按需加载（目录注入 system prompt，全文按需读取）、
+  上下文压缩（s08 四步管线：大结果转存 / 旧消息归档 / 已读结果占位 / LLM 摘要，
+  每次调模型前执行，compact 工具主动压缩，prompt_too_long 补救一次）。
 - **多会话**：会话与消息持久化到 `data/conversations/*.jsonl`（未做登录，dev 模式全局可见）。
 
 ## 快速开始
