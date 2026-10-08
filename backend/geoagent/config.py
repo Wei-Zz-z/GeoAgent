@@ -86,12 +86,20 @@ class Settings:
 
     def __init__(self) -> None:
         default_data_dir = Path(__file__).resolve().parent.parent / "data"
-        self.data_dir = Path(os.getenv("GEOAGENT_DATA_DIR", str(default_data_dir)))
+        configured_data_dir = os.getenv("GEOAGENT_DATA_DIR", "").strip()
+        self.data_dir = Path(configured_data_dir) if configured_data_dir else default_data_dir
         self.default_model = os.getenv("GEOAGENT_DEFAULT_MODEL", "qwen3.8-27b")
         self.router_model = os.getenv("GEOAGENT_ROUTER_MODEL", "")
         default_skills_dir = Path(__file__).resolve().parent.parent.parent / "skills"
-        self.skills_dir = Path(os.getenv("GEOAGENT_SKILLS_DIR", str(default_skills_dir)))
+        configured_skills_dir = os.getenv("GEOAGENT_SKILLS_DIR", "").strip()
+        self.skills_dir = Path(configured_skills_dir) if configured_skills_dir else default_skills_dir
         self.model_registry = default_model_registry()
+        # 向量知识库与 Embedding；默认文件存储，避免要求业务库写权限。
+        self.embedding_model = os.getenv("GEOAGENT_EMBEDDING_MODEL", "text-embedding-v3").strip() or "text-embedding-v3"
+        self.embedding_base_url = os.getenv("GEOAGENT_EMBEDDING_BASE_URL", "").strip()
+        self.vector_store = os.getenv("GEOAGENT_VECTOR_STORE", "file").strip() or "file"
+        self.template_vector_match = os.getenv("GEOAGENT_TEMPLATE_VECTOR_MATCH", "").strip() == "1"
+        self.knowledge_dir = self.data_dir / "knowledge"
         # PostgreSQL/PostGIS 土地变化检测库（受控只读访问，连接串来自环境变量）。
         self.pg_dsn = os.getenv("GEOAGENT_PG_DSN", "").strip()
         raw_whitelist = os.getenv("GEOAGENT_PG_WHITELIST", "").strip()
@@ -103,6 +111,7 @@ class Settings:
         self.pg_max_rows = int(os.getenv("GEOAGENT_PG_MAX_ROWS", "200"))
         self.pg_timeout_s = float(os.getenv("GEOAGENT_PG_TIMEOUT_S", "10"))
         self.pg_audit_path = self.data_dir / "pg_audit.jsonl"
+        self.pgvector_dsn = os.getenv("GEOAGENT_PGVECTOR_DSN", "").strip() or self.pg_dsn
         # 快报等生成文件输出到仓库外的用户数据目录（默认 %LOCALAPPDATA%/GeoAgent/reports）。
         base_data_home = Path(os.getenv("LOCALAPPDATA", str(Path.home())))
         self.reports_dir = Path(
@@ -118,3 +127,21 @@ class Settings:
 
     def list_profiles(self) -> list[dict[str, Any]]:
         return [p.to_dict() for p in self.model_registry.values()]
+
+
+def load_dotenv(path: Path | None = None) -> None:
+    """供手动离线脚本读取 backend/.env，不覆盖已设置的环境变量。"""
+    source = path or Path(__file__).resolve().parent.parent / ".env"
+    if not source.is_file():
+        return
+    for line in source.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        if key and key not in os.environ:
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                value = value[1:-1]
+            os.environ[key] = value

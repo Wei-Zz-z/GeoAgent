@@ -143,3 +143,41 @@ def test_conversation_context_restores_history_for_new_connection(client):
         "之前的回答",
     ]
     assert ctx.model == created["model"]
+
+
+def test_template_free_origin_is_checked_and_reset_each_turn(client, monkeypatch):
+    created = client.post("/api/conversations", json={"title": "来源标识"}).json()
+    client.app.state.template_workflows["wf"] = {
+        "questions": [{"id": "Q1", "question": "统计铁路图斑数量"}]
+    }
+    origins = []
+
+    class FakeFlow:
+        async def run(self, ctx, payload):
+            origins.append(getattr(ctx, "answer_origin", ""))
+            ctx.session.add_user(payload)
+            ctx.session.add_message({"role": "assistant", "content": "测试结果"})
+            return "default", None
+
+    monkeypatch.setattr("geoagent.server.routes.build_geo_graph", lambda **_: FakeFlow())
+    with client.websocket_connect(f'/api/conversations/{created["id"]}/ws') as ws:
+        ws.send_json({
+            "type": "user", "content": "统计铁路图斑数量", "source": "template_free",
+            "workflow_id": "wf", "question_id": "Q1",
+        })
+        assert ws.receive_json()["answer_origin"] == "template_free"
+        assert ws.receive_json()["type"] == "turn_end"
+        ws.send_json({"type": "user", "content": "普通问题"})
+        assert ws.receive_json()["answer_origin"] == ""
+        assert ws.receive_json()["type"] == "turn_end"
+    assert origins == ["template_free", ""]
+
+
+def test_answer_origin_is_display_metadata_not_llm_input(client):
+    created = client.post("/api/conversations", json={"title": "来源元数据"}).json()
+    client.app.state.store.add_message(created["id"], {
+        "role": "assistant", "content": "仅供参考", "answer_origin": "template_free",
+    })
+    ctx = _new_context(client.app, client.app.state.store.get(created["id"]))
+    assert ctx.session.history()[0]["answer_origin"] == "template_free"
+    assert "answer_origin" not in ctx.session.build_llm_messages()[0]

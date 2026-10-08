@@ -20,6 +20,7 @@ CATEGORY_LABELS: dict[str, str] = {
     "agricultural": "农用地",
     "construction": "建设用地",
     "unused": "未利用地",
+    "separate": "单列类型（不计入三大类）",
 }
 
 
@@ -95,7 +96,7 @@ def display_groups(
         groups.setdefault(item["category"], []).append(
             (item["code"], item["name"], bool(item.get("uncertain", False)))
         )
-    order = ["agricultural", "construction", "unused"]
+    order = ["agricultural", "construction", "unused", "separate"]
     return [
         (category_label(key), groups[key])
         for key in order

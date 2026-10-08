@@ -1,6 +1,14 @@
 # 运行时数据与本地日志
 data/
 *.log
+test-tmp*/
+local/
+outputs/
+backend/.pytest-temp/
+backend/pytest-temp*/
+backend/transcripts/
+**/__pycache__/
+REPORT_PROGRESS.md
 
 # 环境变量（API key 一律不进仓库）
 .env

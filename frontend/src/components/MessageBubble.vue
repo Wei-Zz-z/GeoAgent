@@ -36,8 +36,11 @@
     <div
       v-else-if="message.role === 'assistant'"
       class="assistant-card"
-      :class="{ expanded }"
+      :class="{ expanded, 'free-query-result': message.answerOrigin === 'template_free' }"
     >
+      <div v-if="message.answerOrigin === 'template_free'" class="free-query-notice">
+        未命中或未采用标准问题库 · 自由问数结果仅供参考。若本轮 SQL 由模型生成，须核对字段、筛选条件、单位和统计口径后才能用于正式快报。
+      </div>
       <div v-if="docFiles.length || message.route" class="card-toolbar">
         <button
           v-for="f in docFiles"

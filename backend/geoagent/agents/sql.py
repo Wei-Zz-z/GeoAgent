@@ -11,7 +11,9 @@ from typing import Optional
 
 from ..core.agent import Agent
 from ..tools.chart import get_chart_tools
+from ..tools.knowledge import get_knowledge_tools
 from ..tools.pg import get_sql_tools
+from ..tools.qa_library import get_qa_tools
 from ..tools.report import get_report_tools
 from ..tools.registry import Tool
 from ..tools.stat import get_stat_tools
@@ -77,8 +79,15 @@ SQL_SYSTEM_PROMPT = (
     "2. 卡片已完整展示明细时，正文只提炼 1-3 个最值得注意的要点（最大流向/来源、集中区域、"
     "明显增减），不要逐行逐类复述面积与图斑数。\n"
     "3. 只有用户明确要求“列出”“详细说明”时，才在正文展开完整明细。\n"
+    "4. generate_briefing 返回后，严格沿用工具给出的数字格式和单位：面积使用亩，"
+    "所有数字不得添加千分位逗号；不得把工具结果重新格式化成带逗号的数字。\n"
     "构成/占比、类别对比、趋势变化类问题调用 make_chart 生成图表（选型与参数见工具描述），"
-    "图表数据必须与回答口径、单位一致，且只取自查询结果。"
+    "图表数据必须与回答口径、单位一致，且只取自查询结果。\n\n"
+    "## 7. 标准问题与字段知识\n"
+    "遇到常见统计问题但不确定查询口径时，先用 search_question_library 查标准问题及参考 SQL；"
+    "不确定字段名、字典编码或表关系时，先用 search_schema_knowledge 检索已建立的知识库，"
+    "未命中再用 list_tables、describe_table 或只读 SQL 核实。检索结果是线索，不能代替数据库验证。\n"
+    "与地类变化统计无关的问题（如天气、股票、工资）应直接说明服务范围，不调用数据库工具。"
 )
 
 
@@ -95,7 +104,8 @@ class SQLAgent(Agent):
             system_prompt=SQL_SYSTEM_PROMPT,
             tools=tools
             if tools is not None
-            else get_sql_tools() + get_report_tools() + get_stat_tools() + get_chart_tools(),
+            else get_sql_tools() + get_report_tools() + get_stat_tools()
+            + get_chart_tools() + get_qa_tools() + get_knowledge_tools(),
             model=model,
             max_turns=12,
         )

@@ -2,7 +2,7 @@
 
 统计基于 data."2026_1_change_landuse" 单表全量数据，口径与 SQLAgent 知识卡一致：
 - 原土地类型 = "DLBM"/"DLMC"（三调二级类），图斑类型（变化后） = "TBLX"（影像）
-- 面积 "MJ" 单位平方米（v1 不做单位换算）
+- 面积 "MJ" 原始单位平方米，报告统一换算为亩
 - TBLX → 三大类 使用 tools/categories.py 的临时推断映射（待业务替换）
 - 疑似违法占地需要执法认定/管理信息套合数据，v1 留空
 """
@@ -24,6 +24,7 @@ from ..tools.categories import category_codes, display_groups
 
 TABLE = 'data."2026_1_change_landuse"'
 CROP_CODES = ("01", "1")
+SEPARATE_CODES = ("DT", "TD", "WL", "TP", "QT")
 
 # 排版字体约定（与用户模板《快报模板（删除统计数值）.doc》保持一致）。
 FONT_TITLE = "方正小标宋简体"  # 大标题：二号
@@ -40,7 +41,9 @@ def _codes_in(codes: list[str]) -> str:
 
 async def compute_briefing_stats(gw: Any, skills_dir: str | Path | None = None) -> dict[str, Any]:
     """按统计清单执行查询（全部走受控层，单表只读）。返回指标与表格数据。"""
-    const_codes = _codes_in(category_codes("construction", skills_dir))
+    # 同一批查询只记录一次系统时间，后续正文、文件与图表共享，避免生成过程中漂移。
+    query_started_at = datetime.now().astimezone()
+    const_codes = _codes_in([c for c in category_codes("construction", skills_dir) if c not in SEPARATE_CODES])
     const_in = f'("TBLX" IN ({const_codes}))'
     crop_in = f'("TBLX" IN ({_codes_in(list(CROP_CODES))}))'
     restore_dlbm = (
@@ -53,6 +56,7 @@ async def compute_briefing_stats(gw: Any, skills_dir: str | Path | None = None) 
         return rows[0] if rows else {}
 
     stats: dict[str, Any] = {}
+    stats["query_started_at"] = query_started_at.isoformat(timespec="seconds")
     meta = await scalar(
         f'SELECT min("QSX") AS qsx, max("HSX") AS hsx, '
         f'count(*) AS total_n, sum("MJ") AS total_area FROM {TABLE}'
@@ -93,9 +97,9 @@ async def compute_briefing_stats(gw: Any, skills_dir: str | Path | None = None) 
     top_net = await gw.run_sql(
         "SELECT xmc, inflow, outflow, (inflow - outflow) AS net FROM ("
         f'SELECT "XMC" AS xmc, '
-        f'COALESCE(SUM(CASE WHEN {crop_in} THEN "MJ" END), 0) AS inflow, '
-        f'COALESCE(SUM(CASE WHEN "DLBM" LIKE \'01%\' THEN "MJ" END), 0) AS outflow '
-        f"FROM {TABLE} GROUP BY \"XMC\") s ORDER BY net ASC LIMIT 10",
+        f'COALESCE(SUM(CASE WHEN {crop_in} AND "DLBM" NOT LIKE \'01%\' THEN "MJ" END), 0) AS inflow, '
+        f'COALESCE(SUM(CASE WHEN "DLBM" LIKE \'01%\' AND NOT {crop_in} THEN "MJ" END), 0) AS outflow '
+        f"FROM {TABLE} GROUP BY \"XMC\") s WHERE inflow < outflow ORDER BY net ASC LIMIT 10",
         conversation_id="briefing",
     )
     stats["top_net_counties"] = [
@@ -116,7 +120,17 @@ async def compute_briefing_stats(gw: Any, skills_dir: str | Path | None = None) 
     stats["top_const_counties"] = [
         {"xmc": r["xmc"], "n": r["n"], "area": float(r["area"])} for r in top_const["rows"]
     ]
-    stats["categories_display"] = display_groups(skills_dir)
+    groups = display_groups(skills_dir)
+    stats["categories_display"] = [(label, [item for item in items if item[0] not in SEPARATE_CODES]) for label, items in groups if label != "单列类型（不计入三大类）"]
+    stats["categories_display"].append(("单列类型（不计入三大类）", [item for _, items in groups for item in items if item[0] in SEPARATE_CODES]))
+    separate = await gw.run_sql(
+        f'SELECT "TBLX" AS code, sum("MJ") AS area FROM {TABLE} '
+        f'WHERE "TBLX" IN ({_codes_in(list(SEPARATE_CODES))}) GROUP BY "TBLX" ORDER BY area DESC',
+        conversation_id="briefing",
+    )
+    stats["separate_types"] = [{"code": r["code"], "area": float(r["area"] or 0)} for r in separate["rows"]]
+    types = await gw.run_sql(f'SELECT "TBLX" AS code, sum("MJ") AS area FROM {TABLE} GROUP BY "TBLX" ORDER BY area DESC LIMIT 10', conversation_id="briefing")
+    stats["top_types"] = [{"code": r["code"], "area": float(r["area"] or 0)} for r in types["rows"]]
 
     stats["crop_net_n"] = stats["cur_crop"]["n"] - stats["orig_crop"]["n"]
     stats["crop_net_area"] = stats["cur_crop"]["area"] - stats["orig_crop"]["area"]
@@ -128,7 +142,8 @@ async def compute_briefing_stats(gw: Any, skills_dir: str | Path | None = None) 
 
 
 def _fmt(n: float) -> str:
-    return f"{n:,.2f}"
+    """只在展示端换算，原始统计继续保持平方米；1平方米=0.0015亩。"""
+    return f"{n * 0.0015:.2f}"
 
 
 def _rpr(run: Any) -> Any:
@@ -301,6 +316,47 @@ def _add_table_caption(doc: Document, text: str) -> None:
     _set_run_font(run, east_asia=FONT_HEI, ascii_font=FONT_HEI, size=16)
 
 
+def _add_report_chart(
+    doc: Document,
+    number: int,
+    title: str,
+    rows: list[dict[str, Any]],
+    label_key: str,
+    value_key: str,
+) -> None:
+    """在相关正文附近插入图表，并统一图题、单位和字体。"""
+    if not rows:
+        return
+    from .charts import add_bar_chart
+    from ..tools.labels import TBLX_LABELS
+
+    # 各图使用稳定且可区分的配色；图2为净减少，使用橙红色强调负向变化。
+    chart_colors = {
+        1: ("4472C4", "2F5597"),
+        2: ("ED7D31", "C65911"),
+        3: ("70AD47", "548235"),
+        4: ("8064A2", "5F497A"),
+    }
+    fill_color, line_color = chart_colors.get(number, chart_colors[1])
+    result = add_bar_chart(
+        doc,
+        f"图{number}　{title}",
+        [TBLX_LABELS.get(r[label_key], r[label_key]) for r in rows],
+        [float(r[value_key]) * 0.0015 for r in rows],
+        fill_color=fill_color,
+        line_color=line_color,
+    )
+    if result is None:
+        return
+    chart_paragraph, caption = result
+    chart_paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    caption.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    caption.paragraph_format.space_before = Pt(3)
+    caption.paragraph_format.space_after = Pt(6)
+    for run in caption.runs:
+        _set_run_font(run, east_asia=FONT_FANGSONG, size=14)
+
+
 def _insert_ordered(parent: Any, child: Any, order: list[str]) -> None:
     """按 OOXML 子元素顺序插入 child（先移除同名旧元素）。"""
     for existing in list(parent):
@@ -444,74 +500,79 @@ def build_briefing_docx(stats: dict[str, Any], out_path: Path) -> Path:
     period = stats.get("period") or {}
     qsx = period.get("qsx") or "—"
     hsx = period.get("hsx") or "—"
-    _add_title_meta(
-        doc,
-        f"监测期：{qsx} 至 {hsx}（2026年第一期）　"
-        f"生成时间：{datetime.now():%Y-%m-%d %H:%M}",
-    )
+    query_started = stats.get("query_started_at")
+    try:
+        generated_at = datetime.fromisoformat(query_started) if query_started else datetime.now().astimezone()
+    except (TypeError, ValueError):
+        generated_at = datetime.now().astimezone()
+    _add_title_meta(doc, f"监测期：{qsx} 至 {hsx}（2026年第一期）")
+    _add_title_meta(doc, f"查询时间：{generated_at:%Y-%m-%d %H:%M}")
     _new_paragraph(doc, indent_chars=2, line_exact_pt=29)
 
     _add_section_heading(doc, "一、总体情况", first=True)
     _add_body(
         doc,
         f"本期通过遥感影像与国土变更调查数据对比，共提取主要地类新发生变化图斑 "
-        f"{stats['total_n']:,} 个，总面积 {_fmt(stats['total_area'])} 平方米。",
+        f"{stats['total_n']} 个，总面积 {_fmt(stats['total_area'])} 亩。",
     )
+    _add_report_chart(doc, 1, "变化后图斑类型面积前10位", stats.get("top_types", []), "code", "area")
 
     _add_section_heading(doc, "二、耕地变化情况")
     oc, cc = stats["orig_crop"], stats["cur_crop"]
     _add_body(
         doc,
-        f"变化前为耕地的图斑 {oc['n']:,} 个、面积 {_fmt(oc['area'])} 平方米；"
-        f"变化后为耕地的图斑 {cc['n']:,} 个、面积 {_fmt(cc['area'])} 平方米；"
-        f"耕地净变化（变化后−变化前）为 {stats['crop_net_n']:,} 个、"
-        f"{_fmt(stats['crop_net_area'])} 平方米，呈净减少态势。",
+        f"变化前为耕地的面积 {_fmt(oc['area'])} 亩；"
+        f"变化后为耕地的面积 {_fmt(cc['area'])} 亩；"
+        f"耕地净变化（变化后−变化前）为 {_fmt(stats['crop_net_area'])} 亩，"
+        + ("呈净减少态势。" if stats['crop_net_area'] < 0 else "呈净增加态势。" if stats['crop_net_area'] > 0 else "总体持平。"),
     )
     c2c, r2c = stats["crop2const"], stats["restore2crop"]
     _add_body(
         doc,
-        f"原耕地流向建设用地（含疑似新增建设）的图斑 {c2c['n']:,} 个、"
-        f"面积 {_fmt(c2c['area'])} 平方米；由恢复性地类（园地、林地、草地、坑塘等）"
-        f"转为耕地的图斑 {r2c['n']:,} 个、面积 {_fmt(r2c['area'])} 平方米。",
+        f"原耕地流向建设用地的面积 {_fmt(c2c['area'])} 亩；由园地、林地、草地、坑塘等"
+        f"转为耕地的面积 {_fmt(r2c['area'])} 亩（不等同于按种植属性认定的恢复性地类）。",
     )
+    _add_table_caption(doc, "表1　耕地变化总体情况")
     _add_table(
         doc,
-        ["指标", "图斑数（个）", "面积（平方米）"],
+        ["指标", "面积（亩）"],
         [
-            ["变化前为耕地（原）", f"{oc['n']:,}", _fmt(oc["area"])],
-            ["变化后为耕地（现）", f"{cc['n']:,}", _fmt(cc["area"])],
-            ["耕地净变化（现−原）", f"{stats['crop_net_n']:,}", _fmt(stats["crop_net_area"])],
-            ["其中：原耕地流向建设用地", f"{c2c['n']:,}", _fmt(c2c["area"])],
-            ["其中：恢复性地类流入耕地", f"{r2c['n']:,}", _fmt(r2c["area"])],
+            ["变化前为耕地（原）", _fmt(oc["area"])],
+            ["变化后为耕地（现）", _fmt(cc["area"])],
+            ["耕地净变化（现−原）", _fmt(stats["crop_net_area"])],
+            ["其中：原耕地流向建设用地", _fmt(c2c["area"])],
+            ["其中：园林草坑塘流入耕地", _fmt(r2c["area"])],
         ],
-        [7.4, 3.8, 3.8],
+        [10, 5],
     )
     _add_table_caption(doc, "表2　耕地净减少最多的10个县（市、区）")
     _add_table(
         doc,
-        ["县（市、区）", "流出面积（㎡）", "流入面积（㎡）", "净变化面积（㎡）"],
+        ["县（市、区）", "流出面积（亩）", "流入面积（亩）", "净变化面积（亩）"],
         [
             [r["xmc"], _fmt(r["outflow"]), _fmt(r["inflow"]), _fmt(r["net"])]
             for r in stats["top_net_counties"]
         ],
         [3.7, 3.8, 3.7, 3.8],
     )
+    _add_report_chart(doc, 2, "耕地净减少县域面积排名", stats.get("top_net_counties", []), "xmc", "net")
 
     _add_section_heading(doc, "三、新增建设用地情况")
     ccst = stats["cur_const"]
     _add_body(
         doc,
-        f"变化后图斑类型为建设用地的图斑 {ccst['n']:,} 个、面积 {_fmt(ccst['area'])} 平方米；"
-        f"其中原为耕地的 {c2c['n']:,} 个、面积 {_fmt(c2c['area'])} 平方米，"
+        f"变化后图斑类型为建设用地的面积 {_fmt(ccst['area'])} 亩；"
+        f"其中原为耕地的面积 {_fmt(c2c['area'])} 亩，"
         f"占新增建设用地（变化后）面积的 {stats['crop2const_pct']:.2f}%。",
     )
     _add_table_caption(doc, "表3　新增建设用地（变化后）面积前10的县（市、区）")
     _add_table(
         doc,
-        ["县（市、区）", "图斑数（个）", "面积（平方米）"],
-        [[r["xmc"], f"{r['n']:,}", _fmt(r["area"])] for r in stats["top_const_counties"]],
-        [7.4, 3.8, 3.8],
+        ["县（市、区）", "面积（亩）"],
+        [[r["xmc"], _fmt(r["area"])] for r in stats["top_const_counties"]],
+        [10, 5],
     )
+    _add_report_chart(doc, 3, "变化后建设用地县域面积排名", stats.get("top_const_counties", []), "xmc", "area")
 
     _add_section_heading(doc, "四、疑似违法占地情况")
     _add_body(
@@ -523,11 +584,20 @@ def build_briefing_docx(stats: dict[str, Any], out_path: Path) -> Path:
     _add_section_heading(doc, "五、统计说明")
     for line in [
         "原土地类型＝DLBM/DLMC（三调二级类）；图斑类型（变化后）＝TBLX（影像识别）。",
-        "面积单位为平方米，本版未做单位换算。",
+        "面积统一以亩展示，按1平方米=0.0015亩换算，保留两位小数，数字不加千分位逗号。",
+        "动土、推堆土、瓦砾、推平、其他单列统计，不计入三大类；耕地流向这些类型仍计入耕地流出。",
         "TBLX→三大类映射为临时推断版本，正式映射下发后将更新口径。",
         "统计范围为数据库表全量数据。",
     ]:
         _add_body(doc, line)
+
+    if stats.get("separate_types"):
+        from ..tools.labels import TBLX_LABELS
+        _add_table_caption(doc, "动土等其他类型单列统计")
+        _add_table(doc, ["类型", "面积（亩）"],
+                   [[TBLX_LABELS.get(r["code"], r["code"]), _fmt(r["area"])] for r in stats["separate_types"]],
+                   [10, 5])
+        _add_report_chart(doc, 4, "动土等其他类型单列面积", stats["separate_types"], "code", "area")
 
     if stats.get("categories_display"):
         _add_section_heading(doc, "附录　图斑类型→三大类（临时映射）")

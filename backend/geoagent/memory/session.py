@@ -81,7 +81,7 @@ class ConversationSession:
                 }
             )
         messages.extend(
-            {k: v for k, v in m.items() if k not in ("ts", "artifacts")}
+            {k: v for k, v in m.items() if k not in ("ts", "artifacts", "answer_origin")}
             for m in self._messages
         )
         return messages

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+import asyncio
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
+from uuid import uuid4
 
 from pydantic import BaseModel
 
@@ -35,7 +37,8 @@ async def generate_briefing(ctx: Any) -> ToolResult:
             is_error=True,
         )
     # 函数内懒加载，避免 tools 包与 report 包之间的循环导入。
-    from ..report.briefing import build_briefing_docx, compute_briefing_stats
+    from ..report.briefing import build_briefing_docx, compute_briefing_stats, _fmt
+    from ..report.pdf import PdfConversionError, convert_docx_to_pdf
 
     skills = getattr(ctx, "skills", None)
     skills_dir = getattr(skills, "skills_dir", None) if skills is not None else None
@@ -52,9 +55,9 @@ async def generate_briefing(ctx: Any) -> ToolResult:
     if reports_dir is None:
         base_home = Path(os.getenv("LOCALAPPDATA", str(Path.home())))
         reports_dir = Path(os.getenv("GEOAGENT_REPORTS_DIR", str(base_home / "GeoAgent" / "reports")))
-    out_path = reports_dir / "地类变化监测快报_2026年第一期.docx"
+    out_path = reports_dir / f"地类变化监测快报_2026年第一期_{uuid4().hex[:8]}.docx"
     try:
-        build_briefing_docx(stats, out_path)
+        await asyncio.to_thread(build_briefing_docx, stats, out_path)
     except Exception as exc:
         return ToolResult(
             tool_call_id="",
@@ -63,49 +66,68 @@ async def generate_briefing(ctx: Any) -> ToolResult:
             is_error=True,
         )
 
+    pdf_path = out_path.with_suffix(".pdf")
+    pdf_error = None
+    try:
+        await asyncio.to_thread(convert_docx_to_pdf, out_path, pdf_path)
+    except PdfConversionError as exc:
+        pdf_error = str(exc)
+
     lines = [
         "土地变化监测快报已生成（Word）：",
         f"文件路径: {out_path}",
         f"下载: /api/files/reports/{quote(out_path.name)}",
-        f"- 变化图斑总数: {stats['total_n']:,} 个",
-        f"- 总面积: {stats['total_area']:,.2f} 平方米",
-        f"- 耕地净变化(现−原): {stats['crop_net_n']:,} 个 / {stats['crop_net_area']:,.2f} 平方米",
-        f"- 新增建设用地(变化后): {stats['cur_const']['n']:,} 个 / "
-        f"{stats['cur_const']['area']:,.2f} 平方米",
-        f"- 其中原耕地: {stats['crop2const']['n']:,} 个 / "
-        f"{stats['crop2const']['area']:,.2f} 平方米",
+        f"- 变化图斑总数: {stats['total_n']} 个",
+        f"- 总面积: {_fmt(stats['total_area'])} 亩",
+        f"- 耕地净变化面积: {_fmt(stats['crop_net_area'])} 亩",
+        f"- 建设用地(变化后)面积: {_fmt(stats['cur_const']['area'])} 亩",
+        f"- 其中原耕地面积: {_fmt(stats['crop2const']['area'])} 亩",
     ]
+    artifacts = [
+        Artifact(
+            kind="file",
+            name="briefing_docx",
+            data={
+                "url": f"/api/files/reports/{quote(out_path.name)}",
+                "filename": out_path.name,
+            },
+        )
+    ]
+    if pdf_error is None:
+        lines.insert(3, f"PDF下载: /api/files/reports/{quote(pdf_path.name)}")
+        artifacts.append(
+            Artifact(
+                kind="file",
+                name="briefing_pdf",
+                data={
+                    "url": f"/api/files/reports/{quote(pdf_path.name)}",
+                    "filename": pdf_path.name,
+                },
+            )
+        )
+    else:
+        lines.insert(3, f"PDF转换未完成（Word仍可正常下载）：{pdf_error}")
+    artifacts.append(
+        Artifact(
+            kind="table",
+            name="briefing_summary",
+            data={
+                "columns": ["指标", "数值"],
+                "rows": [
+                    ["变化图斑总数(个)", stats["total_n"]],
+                    ["总面积(亩)", _fmt(stats["total_area"])],
+                    ["耕地净变化面积(亩)", _fmt(stats["crop_net_area"])],
+                    ["建设用地(变化后)面积(亩)", _fmt(stats["cur_const"]["area"])],
+                    ["其中原耕地面积(亩)", _fmt(stats["crop2const"]["area"])],
+                ],
+            },
+        )
+    )
     return ToolResult(
         tool_call_id="",
         name="generate_briefing",
         content="\n".join(lines),
-        artifacts=[
-            Artifact(
-                kind="file",
-                name="briefing_docx",
-                data={
-                    "url": f"/api/files/reports/{quote(out_path.name)}",
-                    "filename": out_path.name,
-                },
-            ),
-            Artifact(
-                kind="table",
-                name="briefing_summary",
-                data={
-                    "columns": ["指标", "数值"],
-                    "rows": [
-                        ["变化图斑总数(个)", stats["total_n"]],
-                        ["总面积(平方米)", round(stats["total_area"], 2)],
-                        ["耕地净变化(个)", stats["crop_net_n"]],
-                        ["耕地净变化面积(平方米)", round(stats["crop_net_area"], 2)],
-                        ["新增建设用地(变化后, 个)", stats["cur_const"]["n"]],
-                        ["新增建设用地面积(平方米)", round(stats["cur_const"]["area"], 2)],
-                        ["其中原耕地(个)", stats["crop2const"]["n"]],
-                        ["其中原耕地面积(平方米)", round(stats["crop2const"]["area"], 2)],
-                    ],
-                },
-            )
-        ],
+        artifacts=artifacts,
     )
 
 

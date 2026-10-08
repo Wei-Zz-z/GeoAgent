@@ -46,6 +46,7 @@ function buildRenderMessages(rawMessages) {
         content: (m.tool_calls || []).length ? '' : m.content || '',
         streaming: false,
         route: m.route || '',
+        answerOrigin: m.answer_origin || '',
         subagents: Array.isArray(m.subagents) ? m.subagents : [],
         toolCalls: (m.tool_calls || []).map((tc) => ({
           id: tc.id,
@@ -123,6 +124,7 @@ function handleEvent(event) {
         content: '',
         streaming: true,
         route: '',
+        answerOrigin: event.answer_origin || '',
         sawTool: false,
         subagents: [],
         toolCalls: [],
@@ -283,11 +285,11 @@ async function editAndResend(content) {
   return sendMessage(text)
 }
 
-function sendMessage(content) {
+function sendMessage(content, origin = null) {
   const text = String(content || '').trim()
   if (!text || chat.streaming || !chat._ws || chat._ws.readyState !== WebSocket.OPEN) return false
   chat.messages.push({ id: uid(), role: 'user', content: text })
-  chat._ws.send(JSON.stringify({ type: 'user', content: text }))
+  chat._ws.send(JSON.stringify({ type: 'user', content: text, ...(origin || {}) }))
   return true
 }
 
@@ -298,3 +300,4 @@ chat.deleteConversation = deleteConversation
 chat.switchModel = switchModel
 chat.editAndResend = editAndResend
 chat.sendMessage = sendMessage
+chat.refreshMessages = refreshMessages

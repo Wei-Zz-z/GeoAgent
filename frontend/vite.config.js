@@ -8,7 +8,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        target: process.env.GEOAGENT_DEV_API_TARGET || 'http://127.0.0.1:8000',
         changeOrigin: true,
         ws: true,
       },

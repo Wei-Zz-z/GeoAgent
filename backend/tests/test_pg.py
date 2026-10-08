@@ -29,6 +29,22 @@ from geoagent.tools.labels import COLUMN_LABELS, TBLX_LABELS, humanize_table
 WHITELIST = ['data."2026_1_change_landuse"', "knowledge_base.dict_tblx"]
 
 
+@pytest.mark.parametrize("function", ["LEFT", "RIGHT"])
+def test_guard_string_functions_before_coalesce_are_not_tables(function):
+    sql = (f'SELECT {function}("XZQDM"::text,4) AS code, '
+           'COALESCE(SUM("MJ"),0) AS area FROM data."2026_1_change_landuse" '
+           f'GROUP BY {function}("XZQDM"::text,4)')
+    _, refs = validate_select_sql(sql, WHITELIST)
+    assert refs == [("data", "2026_1_change_landuse")]
+
+
+@pytest.mark.parametrize("modifier", ["LEFT", "RIGHT", "FULL", "INNER", "CROSS", "NATURAL"])
+def test_guard_join_modifiers_still_reject_unlisted_table(modifier):
+    sql = f'SELECT 1 FROM data."2026_1_change_landuse" {modifier} JOIN private.secret ON true'
+    with pytest.raises(PgGuardError, match="private.secret"):
+        validate_select_sql(sql, WHITELIST)
+
+
 class FakeConn:
     def __init__(self, rows=None, error=None):
         self.rows = rows or []
@@ -226,6 +242,24 @@ def test_guard_does_not_treat_aliases_or_subquery_labels_as_tables():
 def test_guard_allows_dollar_quoted_string_with_semicolons():
     sql = "SELECT $$a;b$$ AS v FROM knowledge_base.dict_tblx"
     validate_select_sql(sql, WHITELIST)
+
+
+def test_guard_restores_outer_select_after_scalar_subquery():
+    sql = 'SELECT (SELECT COUNT(*) FROM knowledge_base.dict_tblx), ROUND(1.5, 1)'
+    _, refs = validate_select_sql(sql, WHITELIST)
+    assert refs == [("knowledge_base", "dict_tblx")]
+
+
+def test_guard_restores_outer_from_and_checks_comma_join():
+    sql = 'SELECT * FROM (SELECT * FROM knowledge_base.dict_tblx WHERE 1=1) x, public.secret_table'
+    with pytest.raises(PgGuardError, match="secret_table"):
+        validate_select_sql(sql, WHITELIST)
+
+
+def test_guard_checks_nested_subquery_tables():
+    sql = 'SELECT (SELECT (SELECT COUNT(*) FROM public.secret_table)), ROUND(1.5, 1)'
+    with pytest.raises(PgGuardError, match="secret_table"):
+        validate_select_sql(sql, WHITELIST)
 
 
 def test_guard_rejects_empty_sql():

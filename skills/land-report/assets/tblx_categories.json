@@ -14,8 +14,8 @@
 
     {"code": "20", "name": "建/构筑物", "category": "construction", "uncertain": false},
     {"code": "YH", "name": "硬化", "category": "construction", "uncertain": false},
-    {"code": "DT", "name": "动土", "category": "construction", "uncertain": true},
-    {"code": "TD", "name": "推堆土", "category": "construction", "uncertain": true},
+    {"code": "DT", "name": "动土", "category": "separate", "uncertain": false},
+    {"code": "TD", "name": "推堆土", "category": "separate", "uncertain": false},
     {"code": "DL1", "name": "建成道路", "category": "construction", "uncertain": false},
     {"code": "DL2", "name": "在建道路", "category": "construction", "uncertain": false},
     {"code": "DL3", "name": "路网", "category": "construction", "uncertain": false},
@@ -23,8 +23,8 @@
     {"code": "SJ", "name": "水工建筑", "category": "construction", "uncertain": false},
     {"code": "CK", "name": "采矿", "category": "construction", "uncertain": false},
     {"code": "YT", "name": "盐田", "category": "construction", "uncertain": true},
-    {"code": "WL", "name": "瓦砾", "category": "construction", "uncertain": true},
-    {"code": "TP", "name": "推平", "category": "construction", "uncertain": true},
+    {"code": "WL", "name": "瓦砾", "category": "separate", "uncertain": false},
+    {"code": "TP", "name": "推平", "category": "separate", "uncertain": false},
     {"code": "GF", "name": "光伏", "category": "construction", "uncertain": true},
     {"code": "LD", "name": "公园绿地", "category": "construction", "uncertain": true},
     {"code": "JC", "name": "机场", "category": "construction", "uncertain": false},
@@ -37,6 +37,6 @@
     {"code": "LT", "name": "裸土地", "category": "unused", "uncertain": false},
     {"code": "LY", "name": "裸岩石砾地", "category": "unused", "uncertain": false},
     {"code": "WH", "name": "围海项目", "category": "unused", "uncertain": true},
-    {"code": "QT", "name": "其他", "category": "unused", "uncertain": false}
+    {"code": "QT", "name": "其他", "category": "separate", "uncertain": false}
   ]
 }

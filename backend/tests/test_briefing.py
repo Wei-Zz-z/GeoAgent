@@ -25,7 +25,7 @@ def test_tblx_category_key_types():
     assert tblx_category("01") == "agricultural"
     assert tblx_category("1") == "agricultural"
     assert tblx_category("20") == "construction"
-    assert tblx_category("DT") == "construction"
+    assert tblx_category("DT") == "separate"
     assert tblx_category("HL") == "unused"
     assert tblx_category("NOPE") is None
 
@@ -33,7 +33,8 @@ def test_tblx_category_key_types():
 def test_category_codes_include_zero_padded_variants():
     construction = set(category_codes("construction"))
     assert "01" not in construction
-    assert {"20", "DT", "YH", "DL1"} <= construction
+    assert {"20", "YH", "DL1"} <= construction
+    assert not {"DT", "TD", "WL", "TP", "QT"} & construction
     agricultural = set(category_codes("agricultural"))
     assert {"01", "1", "03", "3", "KT", "SK"} <= agricultural
 
@@ -47,6 +48,7 @@ def _fake_stats() -> dict:
     }
     const = lambda xmc, n, area: {"xmc": xmc, "n": n, "area": area}  # noqa: E731
     return {
+        "query_started_at": "2026-09-15T19:30:45+08:00",
         "period": {"qsx": "20251006", "hsx": "20260501"},
         "total_n": 164798,
         "total_area": 20586122.73,
@@ -87,12 +89,16 @@ def test_build_briefing_docx_writes_report(tmp_path):
     assert out.exists()
     text = _docx_text(out)
     assert "主要地类变化监测快报" in text
-    assert "164,798" in text
-    assert "20,586,122.73" in text
+    assert "164798" in text
+    assert "30879.18" in text
+    assert "图斑数（个）" not in text
+    assert "-32,979" not in text
+    assert "面积（平方米）" not in text
     assert "义乌市" in text
     assert "疑似违法占地" in text
     assert "附录　图斑类型→三大类" in text
     assert "农村道路(ND)（待确认）" in text
+    assert "查询时间：2026-09-15 19:30" in text
 
 
 def test_briefing_formatting_matches_official_template(tmp_path):
@@ -135,6 +141,10 @@ def test_briefing_formatting_matches_official_template(tmp_path):
     assert fonts["east_asia"] == "楷体_GB2312"
     assert fonts["ascii"] == "Times New Roman"
 
+    query_time = next(p for p in doc.paragraphs if p.text.startswith("查询时间："))
+    assert query_time.alignment == WD_ALIGN_PARAGRAPH.CENTER
+    assert run_fonts(query_time)["east_asia"] == "楷体_GB2312"
+
     heading = next(p for p in doc.paragraphs if p.text.startswith("一、总体情况"))
     assert run_fonts(heading)["east_asia"] == "黑体"
     assert run_fonts(heading)["size"] == 16
@@ -157,3 +167,27 @@ def test_briefing_formatting_matches_official_template(tmp_path):
     assert shd is not None and shd.get(qn("w:fill")) == "D9D9D9"
     assert run_fonts(header.paragraphs[0])["bold"] is True
     assert run_fonts(header.paragraphs[0])["east_asia"] == "仿宋_GB2312"
+
+
+def test_word_contains_four_chart_parts(tmp_path):
+    from zipfile import ZipFile
+    from lxml import etree
+    stats = _fake_stats()
+    stats['top_types'] = [{'code': '01', 'area': 1000}, {'code': 'DT', 'area': 2000}]
+    stats['separate_types'] = [{'code': 'DT', 'area': 2000}]
+    path = build_briefing_docx(stats, tmp_path / 'charts.docx')
+    text = _docx_text(path)
+    assert '表1　耕地变化总体情况' in text
+    assert '图1　变化后图斑类型面积前10位（单位：亩）' in text
+    assert '图2　耕地净减少县域面积排名（单位：亩）' in text
+    assert '图3　变化后建设用地县域面积排名（单位：亩）' in text
+    assert '图4　动土等其他类型单列面积（单位：亩）' in text
+    with ZipFile(path) as package:
+        charts = sorted(n for n in package.namelist() if n.startswith('word/charts/'))
+        assert len(charts) == 4
+        expected_colors = ['4472C4', 'ED7D31', '70AD47', '8064A2']
+        for name, expected_color in zip(charts, expected_colors):
+            xml = etree.fromstring(package.read(name))
+            assert xml.xpath('count(//*[local-name()="barChart"])') == 1
+            assert xml.xpath('string(//*[local-name()="invertIfNegative"]/@val)') == '0'
+            assert xml.xpath('string(//*[local-name()="ser"]/*[local-name()="spPr"]//*[local-name()="srgbClr"]/@val)') == expected_color

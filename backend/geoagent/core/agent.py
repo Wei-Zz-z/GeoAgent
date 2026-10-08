@@ -119,6 +119,8 @@ class Agent(Node):
 
             final_dict = final.to_dict()
             final_dict["route"] = getattr(ctx, "route", "") or ""
+            if getattr(ctx, "answer_origin", ""):
+                final_dict["answer_origin"] = ctx.answer_origin
             subagents = getattr(ctx, "subagents", None)
             if subagents:
                 final_dict["subagents"] = list(subagents)
@@ -176,6 +178,7 @@ class Agent(Node):
                     "content": final.content,
                     "model": model,
                     "route": getattr(ctx, "route", "") or "",
+                    "answer_origin": getattr(ctx, "answer_origin", "") or "",
                     "subagents": list(getattr(ctx, "subagents", []) or []),
                 },
             )

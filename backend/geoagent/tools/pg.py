@@ -191,12 +191,6 @@ def quote_ident(part: str) -> str:
 _FROM_JOIN_KEYWORDS = {
     "FROM",
     "JOIN",
-    "INNER",
-    "LEFT",
-    "RIGHT",
-    "FULL",
-    "CROSS",
-    "NATURAL",
 }
 _FROM_END_KEYWORDS = {
     "WHERE",
@@ -258,6 +252,7 @@ def extract_table_refs(tokens: list[_Token]) -> list[tuple[str, str]]:
     refs: list[tuple[str, str]] = []
     expect_table = False
     in_from = False
+    paren_in_from: list[bool] = []
     prev_punct: Optional[str] = None
     i = 0
     while i < len(meaningful):
@@ -301,8 +296,12 @@ def extract_table_refs(tokens: list[_Token]) -> list[tuple[str, str]]:
             continue
         if t.kind == "punct":
             if t.value == "(":
-                # 进入子查询：清空待解析状态，内层 FROM 会重新触发。
+                # 保存外层状态，防止内层 FROM 污染括号后的字段或函数。
+                paren_in_from.append(in_from)
                 in_from = False
+                expect_table = False
+            elif t.value == ")":
+                in_from = paren_in_from.pop() if paren_in_from else False
                 expect_table = False
             prev_punct = t.value
         i += 1
@@ -481,6 +480,100 @@ class PgGateway:
         async with pool.acquire() as conn:
             rows = await asyncio.wait_for(conn.fetch(sql, *args), self.timeout_s)
         return {"table": table, "columns": [dict(r) for r in rows]}
+
+    async def schema_metadata(self) -> dict[str, Any]:
+        """返回白名单表的完整元数据（表注释 + 列注释 + 主键 + 类型）。
+
+        只读、参数化；供向量知识库构建脚本调用（不经 LLM 直接调用，不走护栏 SQL）。
+        每次按 whitelist 逐表查询 information_schema 与 pg_catalog。
+        """
+        pool = await self._get_pool()
+        tables: list[dict[str, Any]] = []
+        async with pool.acquire() as conn:
+            for spec in self.whitelist:
+                schema, tname = normalize_qualified(spec)
+                cols = await asyncio.wait_for(
+                    conn.fetch(
+                        "SELECT column_name, data_type, udt_name, is_nullable, "
+                        "character_maximum_length, numeric_precision, numeric_scale "
+                        "FROM information_schema.columns "
+                        "WHERE table_schema = $1 AND table_name = $2 "
+                        "ORDER BY ordinal_position",
+                        schema,
+                        tname,
+                    ),
+                    self.timeout_s,
+                )
+                comments = await asyncio.wait_for(
+                    conn.fetch(
+                        "SELECT a.attname AS column_name, d.description AS comment "
+                        "FROM pg_catalog.pg_class c "
+                        "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+                        "JOIN pg_catalog.pg_attribute a "
+                        "ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped "
+                        "LEFT JOIN pg_catalog.pg_description d "
+                        "ON d.objoid = c.oid AND d.objsubid = a.attnum "
+                        "WHERE n.nspname = $1 AND c.relname = $2",
+                        schema,
+                        tname,
+                    ),
+                    self.timeout_s,
+                )
+                comment_by_col = {
+                    row["column_name"]: (row["comment"] or "") for row in comments
+                }
+                trow = await asyncio.wait_for(
+                    conn.fetchrow(
+                        "SELECT obj_description(c.oid, 'pg_class') AS comment "
+                        "FROM pg_catalog.pg_class c "
+                        "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+                        "WHERE n.nspname = $1 AND c.relname = $2",
+                        schema,
+                        tname,
+                    ),
+                    self.timeout_s,
+                )
+                table_comment = (trow["comment"] or "") if trow else ""
+                pks = await asyncio.wait_for(
+                    conn.fetch(
+                        "SELECT kcu.column_name "
+                        "FROM information_schema.table_constraints tc "
+                        "JOIN information_schema.key_column_usage kcu "
+                        "ON tc.constraint_name = kcu.constraint_name "
+                        "AND tc.table_schema = kcu.table_schema "
+                        "WHERE tc.constraint_type = 'PRIMARY KEY' "
+                        "AND tc.table_schema = $1 AND tc.table_name = $2",
+                        schema,
+                        tname,
+                    ),
+                    self.timeout_s,
+                )
+                pk_cols = {row["column_name"] for row in pks}
+                key = f"{schema}.{tname}" if schema else tname
+                columns: list[dict[str, Any]] = []
+                for col in cols:
+                    cn = col["column_name"]
+                    columns.append(
+                        {
+                            "column_name": cn,
+                            "data_type": col["data_type"],
+                            "udt_name": col["udt_name"],
+                            "is_nullable": col["is_nullable"],
+                            "character_maximum_length": col["character_maximum_length"],
+                            "comment": comment_by_col.get(cn, ""),
+                            "is_primary_key": cn in pk_cols,
+                        }
+                    )
+                tables.append(
+                    {
+                        "schema": schema,
+                        "table": tname,
+                        "description": table_comment
+                        or _DEFAULT_DESCRIPTIONS.get(key, ""),
+                        "columns": columns,
+                    }
+                )
+        return {"tables": tables}
 
     async def run_sql(
         self,

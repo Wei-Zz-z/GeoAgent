@@ -21,6 +21,6 @@ export function fmt(v) {
   const abs = Math.abs(v)
   if (abs >= 1e8) return `${(v / 1e8).toFixed(2)}亿`
   if (abs >= 1e4) return `${(v / 1e4).toFixed(1)}万`
-  if (Number.isInteger(v)) return v.toLocaleString('zh-CN')
-  return v.toLocaleString('zh-CN', { maximumFractionDigits: 2 })
+  if (Number.isInteger(v)) return String(v)
+  return v.toFixed(2)
 }
