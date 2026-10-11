@@ -8,6 +8,7 @@ from typing import Any, Awaitable, Callable, Optional
 from openai import AsyncOpenAI
 
 from ..config import ModelProfile, Settings
+from .toolcall_guard import StreamLeakFilter
 
 
 class LLMConfigurationError(RuntimeError):
@@ -168,6 +169,15 @@ class LLMService:
         # 避免"卡片先出、正文结尾才一次性冒出来"的观感。
         token_chunk_size = 12
         pending_text = ""
+        # 模型偶尔把工具调用写成正文里的 XML 标记（兼容端点未解析成结构化调用）；
+        # 转发前先缓冲疑似标记，避免脏文本已经显示在前端。
+        leak_filter = StreamLeakFilter()
+
+        async def _forward(text: str) -> None:
+            """先过泄漏过滤器，再按小段转发给前端。"""
+            safe = leak_filter.feed(text)
+            if safe:
+                await _emit_tokens(safe)
 
         async def _emit_tokens(delta: str) -> None:
             """把上游文本分片切小后逐段转发给 on_token。"""
@@ -189,7 +199,7 @@ class LLMService:
                 delta = chunk.choices[0].delta
                 if delta and delta.content:
                     content_parts.append(delta.content)
-                    await _emit_tokens(delta.content)
+                    await _forward(delta.content)
                 for tc in delta.tool_calls or []:
                     # 用流内 index（缺失时退回 id）作为槽位，避免多个工具调用挤进同一槽。
                     index = getattr(tc, "index", None)
@@ -207,14 +217,18 @@ class LLMService:
                             slot["function"]["name"] = name
                         if tc.function.arguments:
                             slot["function"]["arguments"] += tc.function.arguments
-            if pending_text and on_token is not None:
-                await on_token(pending_text)
+            if on_token is not None:
+                await _forward(leak_filter.flush())
+                if pending_text:
+                    await on_token(pending_text)
         except Exception:
             if content_parts or tool_slots:
                 # 已推送过部分内容时不再整体回退，避免与已流出的片段重复；
                 # 先把缓冲里的尾段发出去再抛错，让前端保留已见到的正文。
-                if pending_text and on_token is not None:
-                    await on_token(pending_text)
+                if on_token is not None:
+                    await _forward(leak_filter.flush())
+                    if pending_text:
+                        await on_token(pending_text)
                 raise
             # 部分提供商不支持流式（例如带工具时），回退到非流式调用；
             # 正文仍然切成小段转发，保证前端体验与真实流式一致。

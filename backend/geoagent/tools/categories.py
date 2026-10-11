@@ -85,6 +85,22 @@ def category_codes(category: str, skills_dir: Optional[str | Path] = None) -> li
     return sorted(code for code, info in entries.items() if info["category"] == category)
 
 
+# “建设用地（含疑似）”口径：正式建设类 + 动土/推堆土/瓦砾/推平。
+# 与 SQLAgent 提示词第 3 节、问题库条目里的“建设模糊集”一致；separate 类中的
+# “其他(QT)”不属于疑似建设，不计入。
+SUSPECT_CONSTRUCTION_CODES: tuple[str, ...] = ("DT", "TD", "WL", "TP")
+
+
+def construction_codes(include_suspect: bool = True) -> list[str]:
+    """返回建设用地代码集；include_suspect=True 时含“疑似建设”类（19 类）。"""
+    codes = list(category_codes("construction"))
+    if include_suspect:
+        for code in SUSPECT_CONSTRUCTION_CODES:
+            if code not in codes:
+                codes.append(code)
+    return sorted(codes)
+
+
 def display_groups(
     skills_dir: Optional[str | Path] = None,
 ) -> list[tuple[str, list[tuple[str, str, bool]]]]:

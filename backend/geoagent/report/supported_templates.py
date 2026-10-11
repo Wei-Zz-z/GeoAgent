@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from ..datasets import bind_entry_sql, default_registry
 from .brother_trial import fill_brother_report, is_brother_template
 from .briefing import compute_briefing_stats
 from .client_trial import fill_client_trial_report, is_client_trial_template, query_client_trial
@@ -50,9 +51,10 @@ async def generate_supported_report(
             skills_dir / "qa-library" / "assets" / "question_library.json",
         )
         entries = {entry["id"]: entry for entry in library["entries"]}
+        registry = default_registry()
         stats = {}
         for entry_id in REQUIRED_QUESTION_IDS:
-            sql = str(entries[entry_id].get("sql", "")).strip()
+            sql = bind_entry_sql(str(entries[entry_id].get("sql", "")).strip(), registry)
             if not sql:
                 raise ValueError(f"标准问题 {entry_id} 缺少参考 SQL。")
             stats[entry_id] = await gateway.run_sql(sql, conversation_id="template-library")

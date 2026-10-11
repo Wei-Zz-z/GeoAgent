@@ -22,7 +22,7 @@ CHART_TYPE_LABELS = {"pie": "饼图", "bar": "柱状图", "line": "折线图"}
 class ChartSeries(BaseModel):
     """图表中的一个数值系列。"""
 
-    name: str = Field(..., min_length=1, max_length=40, description="系列名称（如“面积（平方米）”）")
+    name: str = Field(..., min_length=1, max_length=40, description="系列名称（如“面积（亩）”）")
     values: list[float] = Field(
         ...,
         min_length=1,
@@ -38,7 +38,7 @@ class MakeChartParams(BaseModel):
         ...,
         description="图表类型：pie=饼图（构成占比）；bar=柱状图（类别对比）；line=折线图（趋势变化）",
     )
-    title: str = Field(..., min_length=1, max_length=100, description="图表标题（含单位，如“建设用地图斑类型构成（平方米）”）")
+    title: str = Field(..., min_length=1, max_length=100, description="图表标题（含单位，如“建设用地图斑类型构成（亩）”）")
     labels: list[str] = Field(
         ...,
         min_length=1,

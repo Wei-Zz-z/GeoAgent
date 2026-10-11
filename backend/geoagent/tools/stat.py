@@ -14,11 +14,13 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from ..datasets import context_table
 from .categories import category_codes
 from .registry import get_tools, register_tool
+from .units import convert_mu_headers, m2_to_mu
 from .result import Artifact, ToolResult
 
-TABLE = 'data."2026_1_change_landuse"'
+# 期次表名不写死：每次调用由 datasets.context_table(ctx) 按当期期次解析。
 CROP_CURRENT = ("01", "1")
 
 
@@ -45,11 +47,13 @@ ORIG_CATEGORY_CASE = (
     "THEN '农用地' ELSE '其他' END"
 )
 
-ORIG_SUMMARY_JOIN = (
-    f"FROM {TABLE} t "
-    "LEFT JOIN knowledge_base.dict_land_classification_summary d "
-    'ON t."DLBM" = d."DLBM"'
-)
+def _orig_summary_join(table: str) -> str:
+    """原土地类型侧的口径汇总 JOIN（表名按当期期次注入）。"""
+    return (
+        f"FROM {table} t "
+        "LEFT JOIN knowledge_base.dict_land_classification_summary d "
+        'ON t."DLBM" = d."DLBM"'
+    )
 
 
 class SummarizeByTypeParams(BaseModel):
@@ -59,7 +63,7 @@ class SummarizeByTypeParams(BaseModel):
 class FragmentStatsParams(BaseModel):
     threshold_m2: float = Field(
         gt=0,
-        description="面积阈值（平方米）：统计面积 MJ 小于该值的图斑。注意数据面积值域为 50-200 平方米",
+        description="面积阈值（平方米，按库内 MJ 判定）：统计面积小于该值的图斑。注意数据面积值域为 50-200 平方米；返回结果中的面积已换算为亩",
     )
 
 
@@ -86,7 +90,9 @@ class TopConversionsParams(BaseModel):
 
 
 def _table(columns: list[str], rows: list[dict[str, Any]], name: str) -> Artifact:
-    return Artifact(kind="table", name=name, data={"columns": columns, "rows": rows})
+    """建表前把面积列统一换算为亩（库内 MJ 与统计列都是平方米）。"""
+    mu_columns, mu_rows = convert_mu_headers(columns, rows)
+    return Artifact(kind="table", name=name, data={"columns": mu_columns, "rows": mu_rows})
 
 
 @register_tool(
@@ -101,19 +107,20 @@ async def summarize_by_type(ctx: Any) -> ToolResult:
     gateway = getattr(ctx, "pg", None)
     if gateway is None:
         return _no_gateway("summarize_by_type")
+    table = context_table(ctx)
     try:
         detail = await gateway.run_sql(
             "SELECT t.\"TBLX\" AS code, "
             "COALESCE(d.\"TBLX_CODE\", t.\"TBLX\") AS name, "
             "count(*) AS n, sum(t.\"MJ\") AS area_m2 "
-            f"FROM {TABLE} t "
+            f"FROM {table} t "
             "LEFT JOIN knowledge_base.dict_tblx d "
             "ON t.\"TBLX\" = d.\"TBLX\" OR t.\"TBLX\" = '0' || d.\"TBLX\" "
             "GROUP BY t.\"TBLX\", d.\"TBLX_CODE\" ORDER BY area_m2 DESC",
             conversation_id="summarize_by_type",
         )
         total = await gateway.run_sql(
-            f"SELECT count(*) AS total_n, sum(\"MJ\") AS total_area_m2 FROM {TABLE}",
+            f"SELECT count(*) AS total_n, sum(\"MJ\") AS total_area_m2 FROM {table}",
             conversation_id="summarize_by_type",
         )
     except Exception as exc:
@@ -155,13 +162,14 @@ async def fragment_stats(ctx: Any, threshold_m2: float) -> ToolResult:
     gateway = getattr(ctx, "pg", None)
     if gateway is None:
         return _no_gateway("fragment_stats")
+    table = context_table(ctx)
     try:
         total = await gateway.run_sql(
-            f"SELECT count(*) AS n, sum(\"MJ\") AS area FROM {TABLE}",
+            f"SELECT count(*) AS n, sum(\"MJ\") AS area FROM {table}",
             conversation_id="fragment_stats",
         )
         frag = await gateway.run_sql(
-            f'SELECT count(*) AS n, sum("MJ") AS area FROM {TABLE} '
+            f'SELECT count(*) AS n, sum("MJ") AS area FROM {table} '
             f'WHERE "MJ" < {float(threshold_m2):.6g}',
             conversation_id="fragment_stats",
         )
@@ -175,8 +183,8 @@ async def fragment_stats(ctx: Any, threshold_m2: float) -> ToolResult:
     share_a = fa / ta * 100 if ta else 0.0
     content = (
         f"面积小于 {threshold_m2:g} 平方米的图斑 {fn:,} 个，占全库 {tn:,} 个的 "
-        f"{share_n:.2f}%；其面积 {fa:,.2f} 平方米，占全库面积 {share_a:.2f}%。\n"
-        "注意：数据面积值域为 50-200 平方米，阈值 ≤50 时结果恒为 0。"
+        f"{share_n:.2f}%；其面积 {m2_to_mu(fa):,.2f} 亩，占全库面积 {share_a:.2f}%。\n"
+        "注意：阈值按库内平方米（MJ）判定；数据面积值域为 50-200 平方米，阈值 ≤50 时结果恒为 0。"
     )
     return ToolResult(
         tool_call_id="",
@@ -212,31 +220,32 @@ async def farmland_flow_summary(ctx: Any) -> ToolResult:
     gateway = getattr(ctx, "pg", None)
     if gateway is None:
         return _no_gateway("farmland_flow_summary")
+    table = context_table(ctx)
     try:
         outflow = await gateway.run_sql(
-            f'SELECT count(*) AS n, sum("MJ") AS area FROM {TABLE} WHERE "DLBM" LIKE \'01%\'',
+            f'SELECT count(*) AS n, sum("MJ") AS area FROM {table} WHERE "DLBM" LIKE \'01%\'',
             conversation_id="farmland_flow",
         )
         inflow = await gateway.run_sql(
-            f'SELECT count(*) AS n, sum("MJ") AS area FROM {TABLE} WHERE "TBLX" IN ({_codes_in(list(CROP_CURRENT))})',
+            f'SELECT count(*) AS n, sum("MJ") AS area FROM {table} WHERE "TBLX" IN ({_codes_in(list(CROP_CURRENT))})',
             conversation_id="farmland_flow",
         )
         cat = _category_case(category_codes("agricultural"), category_codes("construction"))
         flows = await gateway.run_sql(
             f'SELECT {cat} AS category, count(*) AS n, sum("MJ") AS area '
-            f"FROM {TABLE} WHERE \"DLBM\" LIKE '01%' GROUP BY {cat} ORDER BY area DESC",
+            f"FROM {table} WHERE \"DLBM\" LIKE '01%' GROUP BY {cat} ORDER BY area DESC",
             conversation_id="farmland_flow",
         )
         sources = await gateway.run_sql(
             f"SELECT {ORIG_CATEGORY_CASE} AS category, count(*) AS n, sum(t.\"MJ\") AS area "
-            f"{ORIG_SUMMARY_JOIN} WHERE t.\"TBLX\" IN ({_codes_in(list(CROP_CURRENT))}) "
+            f"{_orig_summary_join(table)} WHERE t.\"TBLX\" IN ({_codes_in(list(CROP_CURRENT))}) "
             "GROUP BY category ORDER BY area DESC",
             conversation_id="farmland_flow",
         )
         details = await gateway.run_sql(
             "SELECT COALESCE(d.\"TBLX_CODE\", t.\"TBLX\") AS name, count(*) AS n, "
             "sum(t.\"MJ\") AS area "
-            f"FROM {TABLE} t "
+            f"FROM {table} t "
             "LEFT JOIN knowledge_base.dict_tblx d "
             "ON t.\"TBLX\" = d.\"TBLX\" OR t.\"TBLX\" = '0' || d.\"TBLX\" "
             'WHERE t."DLBM" LIKE \'01%\' GROUP BY name ORDER BY area DESC LIMIT 10',
@@ -254,13 +263,13 @@ async def farmland_flow_summary(ctx: Any) -> ToolResult:
         ["耕地净变化(流入−流出)", inn - on, round(ia - oa, 2)],
     ]
     content = [
-        f"耕地流出 {on:,} 个 / {oa:,.2f} ㎡；流入 {inn:,} 个 / {ia:,.2f} ㎡；"
-        f"净变化 {inn - on:,} 个 / {ia - oa:,.2f} ㎡。",
+        f"耕地流出 {on:,} 个 / {m2_to_mu(oa):,.2f} 亩；流入 {inn:,} 个 / {m2_to_mu(ia):,.2f} 亩；"
+        f"净变化 {inn - on:,} 个 / {m2_to_mu(ia - oa):,.2f} 亩。",
         "流出方向（原耕地 → 现三大类，模糊映射）：",
     ]
-    content += [f"- {r['category']}: {r['n']:,} 个 / {float(r['area']):,.2f} ㎡" for r in flows["rows"]]
+    content += [f"- {r['category']}: {r['n']:,} 个 / {m2_to_mu(r['area']):,.2f} 亩" for r in flows["rows"]]
     content.append("流入来源（现耕地 ← 原三大类）：")
-    content += [f"- {r['category']}: {r['n']:,} 个 / {float(r['area']):,.2f} ㎡" for r in sources["rows"]]
+    content += [f"- {r['category']}: {r['n']:,} 个 / {m2_to_mu(r['area']):,.2f} 亩" for r in sources["rows"]]
     return ToolResult(
         tool_call_id="",
         name="farmland_flow_summary",
@@ -304,30 +313,31 @@ async def construction_change_summary(ctx: Any, top_n: int) -> ToolResult:
     gateway = getattr(ctx, "pg", None)
     if gateway is None:
         return _no_gateway("construction_change_summary")
+    table = context_table(ctx)
     const = _codes_in(category_codes("construction"))
     const_where = f'"TBLX" IN ({const})'
     try:
         total = await gateway.run_sql(
-            f'SELECT count(*) AS n, sum("MJ") AS area FROM {TABLE}',
+            f'SELECT count(*) AS n, sum("MJ") AS area FROM {table}',
             conversation_id="construction_change",
         )
         cur = await gateway.run_sql(
-            f'SELECT count(*) AS n, sum("MJ") AS area FROM {TABLE} WHERE {const_where}',
+            f'SELECT count(*) AS n, sum("MJ") AS area FROM {table} WHERE {const_where}',
             conversation_id="construction_change",
         )
         crop = await gateway.run_sql(
-            f'SELECT count(*) AS n, sum("MJ") AS area FROM {TABLE} '
+            f'SELECT count(*) AS n, sum("MJ") AS area FROM {table} '
             f'WHERE {const_where} AND "DLBM" LIKE \'01%\'',
             conversation_id="construction_change",
         )
         counties = await gateway.run_sql(
-            f'SELECT "XMC" AS region, count(*) AS n, sum("MJ") AS area FROM {TABLE} '
+            f'SELECT "XMC" AS region, count(*) AS n, sum("MJ") AS area FROM {table} '
             f"WHERE {const_where} GROUP BY \"XMC\" ORDER BY area DESC LIMIT {int(top_n)}",
             conversation_id="construction_change",
         )
         sources = await gateway.run_sql(
             f"SELECT {ORIG_CATEGORY_CASE} AS category, count(*) AS n, sum(t.\"MJ\") AS area "
-            f"{ORIG_SUMMARY_JOIN} WHERE {const_where} "
+            f"{_orig_summary_join(table)} WHERE {const_where} "
             "GROUP BY category ORDER BY area DESC",
             conversation_id="construction_change",
         )
@@ -341,11 +351,11 @@ async def construction_change_summary(ctx: Any, top_n: int) -> ToolResult:
     cpn, cpa = cp["n"] or 0, float(cp["area"] or 0)
     share = ca / ta * 100 if ta else 0.0
     content = [
-        f"新增建设用地（变化后图斑类型 ∈ 建设模糊集）{cn:,} 个 / {ca:,.2f} ㎡，"
-        f"占全库面积 {share:.2f}%；其中原为耕地 {cpn:,} 个 / {cpa:,.2f} ㎡。",
+        f"新增建设用地（变化后图斑类型 ∈ 建设模糊集）{cn:,} 个 / {m2_to_mu(ca):,.2f} 亩，"
+        f"占全库面积 {share:.2f}%；其中原为耕地 {cpn:,} 个 / {m2_to_mu(cpa):,.2f} 亩。",
         "来源构成（按原三大类）：",
     ]
-    content += [f"- {r['category']}: {r['n']:,} 个 / {float(r['area']):,.2f} ㎡" for r in sources["rows"]]
+    content += [f"- {r['category']}: {r['n']:,} 个 / {m2_to_mu(r['area']):,.2f} 亩" for r in sources["rows"]]
     return ToolResult(
         tool_call_id="",
         name="construction_change_summary",
@@ -393,6 +403,7 @@ async def top_conversions(ctx: Any, top_n: int) -> ToolResult:
     gateway = getattr(ctx, "pg", None)
     if gateway is None:
         return _no_gateway("top_conversions")
+    table = context_table(ctx)
     agri = _codes_in(category_codes("agricultural"))
     const = _codes_in(category_codes("construction"))
     cur_cat = (
@@ -405,7 +416,7 @@ async def top_conversions(ctx: Any, top_n: int) -> ToolResult:
         rows = await gateway.run_sql(
             f'SELECT COALESCE(d."YJLMC", \'其他\') AS original, {cur_cat} AS current, '
             'count(*) AS n, sum(t."MJ") AS area '
-            f"{ORIG_SUMMARY_JOIN} "
+            f"{_orig_summary_join(table)} "
             f"GROUP BY COALESCE(d.\"YJLMC\", '其他'), {cur_cat} "
             f"ORDER BY area DESC LIMIT {int(top_n)}",
             conversation_id="top_conversions",
@@ -415,7 +426,7 @@ async def top_conversions(ctx: Any, top_n: int) -> ToolResult:
     items = rows["rows"]
     content = [f"变化面积最大的 {len(items)} 种转换（原一级类 → 现三大类，模糊映射）："]
     content += [
-        f"- {r['original']}→{r['current']}: {r['n']:,} 个 / {float(r['area']):,.2f} 平方米"
+        f"- {r['original']}→{r['current']}: {r['n']:,} 个 / {m2_to_mu(r['area']):,.2f} 亩"
         for r in items
     ]
     return ToolResult(
@@ -442,11 +453,14 @@ async def top_conversions(ctx: Any, top_n: int) -> ToolResult:
 
 def _summary_lines(rows: list[dict[str, Any]], total_n: Any, total_area: float) -> list[str]:
     lines = [
-        f"全库合计：共 {total_n:,} 个图斑、总面积 {total_area:,.2f} 平方米。",
+        f"全库合计：共 {total_n:,} 个图斑、总面积 {m2_to_mu(total_area):,.2f} 亩。",
         f"共 {len(rows)} 种图斑类型（变化后/TBLX）：",
     ]
     for row in rows[:50]:
-        lines.append(f"- {row['name']}({row['code']}): {row['n']:,} 个 / {float(row['area_m2']):,.2f} 平方米")
+        lines.append(
+            f"- {row['name']}({row['code']}): {row['n']:,} 个 / "
+            f"{m2_to_mu(row['area_m2']):,.2f} 亩"
+        )
     return lines
 
 

@@ -2,7 +2,7 @@
   "name": "land-report",
   "version": "1.0",
   "description": "2026 年第一期地类变化监测快报统计需求清单（默认模板，v1）",
-  "table": "data.\"2026_1_change_landuse\"",
+  "table": "{table}",
   "notes": [
     "原土地类型 = DLBM/DLMC（三调二级类）；图斑类型（变化后） = TBLX（影像）",
     "面积单位平方米，v1 不换算；疑似违法占地 v1 留空（需执法/审批数据）",
@@ -12,32 +12,32 @@
     {
       "id": "total",
       "label": "变化图斑总数与总面积",
-      "sql": "SELECT count(*) AS n, sum(\"MJ\") AS area FROM data.\"2026_1_change_landuse\""
+      "sql": "SELECT count(*) AS n, sum(\"MJ\") AS area FROM {table}"
     },
     {
       "id": "orig_farmland",
       "label": "变化前为耕地（原土地类型 DLBM 01%）",
-      "sql": "SELECT count(*) AS n, sum(\"MJ\") AS area FROM data.\"2026_1_change_landuse\" WHERE \"DLBM\" LIKE '01%'"
+      "sql": "SELECT count(*) AS n, sum(\"MJ\") AS area FROM {table} WHERE \"DLBM\" LIKE '01%'"
     },
     {
       "id": "current_farmland",
       "label": "变化后为耕地（图斑类型 TBLX 01/1）",
-      "sql": "SELECT count(*) AS n, sum(\"MJ\") AS area FROM data.\"2026_1_change_landuse\" WHERE \"TBLX\" IN ('01','1')"
+      "sql": "SELECT count(*) AS n, sum(\"MJ\") AS area FROM {table} WHERE \"TBLX\" IN ('01','1')"
     },
     {
       "id": "farmland_to_construction",
       "label": "原耕地流向建设用地（TBLX 属建设用地类）",
-      "sql": "SELECT count(*) AS n, sum(\"MJ\") AS area FROM data.\"2026_1_change_landuse\" WHERE \"DLBM\" LIKE '01%' AND \"TBLX\" IN (建设用地编码集合)"
+      "sql": "SELECT count(*) AS n, sum(\"MJ\") AS area FROM {table} WHERE \"DLBM\" LIKE '01%' AND \"TBLX\" IN (建设用地编码集合)"
     },
     {
       "id": "restore_to_farmland",
       "label": "恢复性地类（园地/林地/草地/坑塘等）流入耕地",
-      "sql": "SELECT count(*) AS n, sum(\"MJ\") AS area FROM data.\"2026_1_change_landuse\" WHERE (\"DLBM\" LIKE '02%' OR \"DLBM\" LIKE '03%' OR \"DLBM\" LIKE '04%' OR \"DLBM\" IN ('1104','1104A','1104K')) AND \"TBLX\" IN ('01','1')"
+      "sql": "SELECT count(*) AS n, sum(\"MJ\") AS area FROM {table} WHERE (\"DLBM\" LIKE '02%' OR \"DLBM\" LIKE '03%' OR \"DLBM\" LIKE '04%' OR \"DLBM\" IN ('1104','1104A','1104K')) AND \"TBLX\" IN ('01','1')"
     },
     {
       "id": "current_construction",
       "label": "新增建设用地（变化后 TBLX 属建设用地类）",
-      "sql": "SELECT count(*) AS n, sum(\"MJ\") AS area FROM data.\"2026_1_change_landuse\" WHERE \"TBLX\" IN (建设用地编码集合)"
+      "sql": "SELECT count(*) AS n, sum(\"MJ\") AS area FROM {table} WHERE \"TBLX\" IN (建设用地编码集合)"
     },
     {
       "id": "top_net_counties",

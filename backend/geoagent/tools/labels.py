@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .units import area_header, is_area_column, m2_to_mu
+
 
 COLUMN_LABELS: dict[str, str] = {
     "OBJECTID": "主键",
@@ -42,7 +44,7 @@ COLUMN_LABELS: dict[str, str] = {
     "TBXHDM": "图斑细化代码",
     "SFYN": "是否涉及永久基本农田",
     "SFHX": "是否涉及生态保护红线",
-    "MJ": "面积(平方米)",
+    "MJ": "面积(亩)",
     "CREATE_AT": "记录创建时间",
     "UPDATE_AT": "记录最后修改时间",
 }
@@ -93,8 +95,24 @@ def humanize_table(
     columns: list[str],
     rows: list[dict[str, Any]],
 ) -> tuple[list[str], list[dict[str, Any]]]:
-    """把查询结果的表头与 TBLX 值映射为中文（未命中的列名/值原样保留）。"""
-    labels = [COLUMN_LABELS.get(col, col) for col in columns]
+    """把查询结果的表头与 TBLX 值映射为中文，并把面积列换算为亩。
+
+    库内面积列（MJ、area、*_m2）都是平方米；这里统一改名为“面积(亩)”并按
+    1 平方米 = 0.0015 亩 换算，保证表格 artifact 与给模型看的文本口径一致。
+    未命中的列名/值原样保留。
+    """
+    labels: list[str] = []
+    used: set[str] = set()
+    for col in columns:
+        if is_area_column(col):
+            label = area_header(col)
+        else:
+            label = COLUMN_LABELS.get(col, col)
+        if label in used:
+            label = f"{label}[{col}]"
+        used.add(label)
+        labels.append(label)
+
     out_rows: list[dict[str, Any]] = []
     for row in rows:
         new_row: dict[str, Any] = {}
@@ -102,6 +120,8 @@ def humanize_table(
             value = row.get(col)
             if col == "TBLX" and value is not None:
                 value = TBLX_LABELS.get(str(value), value)
+            elif is_area_column(col):
+                value = m2_to_mu(value)
             new_row[label] = value
         out_rows.append(new_row)
     return labels, out_rows

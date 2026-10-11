@@ -50,6 +50,8 @@ def _fake_stats() -> dict:
     return {
         "query_started_at": "2026-09-15T19:30:45+08:00",
         "period": {"qsx": "20251006", "hsx": "20260501"},
+        "period_label": "2026年第一期",
+        "table": 'data."2026_1_change_landuse"',
         "total_n": 164798,
         "total_area": 20586122.73,
         "orig_crop": {"n": 46880, "area": 5847014.45},
@@ -68,6 +70,11 @@ def _fake_stats() -> dict:
             const("义乌市", 100, 200000.0),
             const("萧山区", 90, 180000.0),
         ],
+        # 预警分析（疑似占用永农 / 红线内新增建设）
+        "yongnong": {"n": 360, "area": 13570111.45},
+        "redline": {"n": 989, "area": 40140088.38},
+        "yongnong_counties": [const("缙云县", 40, 900000.0)],
+        "redline_counties": [const("义乌市", 30, 700000.0)],
         "categories_display": [
             ("农用地", [("01", "耕地", False), ("ND", "农村道路", True)]),
             ("建设用地", [("20", "建/构筑物", False)]),
@@ -91,11 +98,17 @@ def test_build_briefing_docx_writes_report(tmp_path):
     assert "主要地类变化监测快报" in text
     assert "164798" in text
     assert "30879.18" in text
-    assert "图斑数（个）" not in text
     assert "-32,979" not in text
     assert "面积（平方米）" not in text
     assert "义乌市" in text
-    assert "疑似违法占地" in text
+    # 预警分析已进正文与表格：数量 + 面积（亩）+ 期次标注
+    assert "四、疑似违法占地情况（预警）" in text
+    assert "疑似占用永久基本农田面积前10的县（市、区）" in text
+    assert "生态保护红线内疑似新增建设面积前10的县（市、区）" in text
+    assert "20355.17" in text
+    assert "缙云县" in text
+    assert "监测期：20251006 至 20260501（2026年第一期）" in text
+    assert 'data."2026_1_change_landuse"' in text
     assert "附录　图斑类型→三大类" in text
     assert "农村道路(ND)（待确认）" in text
     assert "查询时间：2026-09-15 19:30" in text

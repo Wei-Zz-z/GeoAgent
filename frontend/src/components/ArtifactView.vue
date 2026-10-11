@@ -69,6 +69,7 @@ import VectorLayer from 'ol/layer/Vector'
 import { fromLonLat } from 'ol/proj'
 import OSM from 'ol/source/OSM'
 import VectorSource from 'ol/source/Vector'
+import { Fill, Stroke, Style } from 'ol/style'
 import View from 'ol/View'
 import ChartView from './ChartView.vue'
 import Icon from './Icon.vue'
@@ -123,12 +124,23 @@ onMounted(() => {
   if (!features.length) return
 
   const source = new VectorSource({ features })
+  // 图层样式可随 GeoJSON 一起下发（预警图斑为红色描边 + 半透明红填充）
+  const styleSpec = props.artifact.data?.style
+  const vectorLayer = new VectorLayer({ source })
+  if (styleSpec) {
+    vectorLayer.setStyle(
+      new Style({
+        stroke: new Stroke({
+          color: styleSpec.stroke || '#d93025',
+          width: styleSpec.strokeWidth || 2,
+        }),
+        fill: new Fill({ color: styleSpec.fill || 'rgba(217, 48, 37, 0.28)' }),
+      }),
+    )
+  }
   map = new Map({
     target: mapEl.value,
-    layers: [
-      new TileLayer({ source: new OSM() }),
-      new VectorLayer({ source }),
-    ],
+    layers: [new TileLayer({ source: new OSM() }), vectorLayer],
     view: new View({ center: fromLonLat([116.4, 39.9]), zoom: 10 }),
     controls: [],
   })

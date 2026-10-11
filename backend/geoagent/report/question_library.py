@@ -41,6 +41,17 @@ def _normalize(text: str) -> str:
     return normalized
 
 
+def _text_list(value: Any) -> list[str]:
+    """把条目里的列表字段（别名/关键词/指标/维度）统一成字符串列表。"""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value if str(item).strip()]
+    return [str(value)]
+
+
 def _candidate(query: str, entry: dict[str, Any]) -> dict[str, Any] | None:
     normalized = _normalize(query)
     if not normalized:
@@ -48,8 +59,10 @@ def _candidate(query: str, entry: dict[str, Any]) -> dict[str, Any] | None:
     corpus = _normalize(" ".join([
         str(entry.get("question", "")),
         str(entry.get("intent", "")),
-        *[str(item) for item in entry.get("aliases", [])],
-        *[str(item) for item in entry.get("keywords", [])],
+        *_text_list(entry.get("metrics")),
+        *_text_list(entry.get("dimensions")),
+        *_text_list(entry.get("aliases")),
+        *_text_list(entry.get("keywords")),
     ]))
     incompatible = "疑似新增违法" in normalized and "违法" not in corpus
     missing_aggregates = [word for word in ("平均", "中位数") if word in normalized and word not in corpus]

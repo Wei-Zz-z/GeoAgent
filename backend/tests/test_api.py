@@ -152,14 +152,14 @@ def test_template_free_origin_is_checked_and_reset_each_turn(client, monkeypatch
     }
     origins = []
 
-    class FakeFlow:
-        async def run(self, ctx, payload):
-            origins.append(getattr(ctx, "answer_origin", ""))
-            ctx.session.add_user(payload)
-            ctx.session.add_message({"role": "assistant", "content": "测试结果"})
-            return "default", None
+    async def fake_run_turn(ctx, payload, **_kwargs):
+        # 会话已选择智能体时走 run_turn 直连，这里只关心每轮的 answer_origin 是否重置
+        origins.append(getattr(ctx, "answer_origin", ""))
+        ctx.session.add_user(payload)
+        ctx.session.add_message({"role": "assistant", "content": "测试结果"})
+        return None
 
-    monkeypatch.setattr("geoagent.server.routes.build_geo_graph", lambda **_: FakeFlow())
+    monkeypatch.setattr("geoagent.server.routes.run_turn", fake_run_turn)
     with client.websocket_connect(f'/api/conversations/{created["id"]}/ws') as ws:
         ws.send_json({
             "type": "user", "content": "统计铁路图斑数量", "source": "template_free",

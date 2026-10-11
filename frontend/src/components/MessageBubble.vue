@@ -43,10 +43,10 @@
       </div>
       <div v-if="docFiles.length || message.route" class="card-toolbar">
         <button
-          v-for="f in docFiles"
+          v-for="f in previewFiles"
           :key="f.url"
           class="mini-btn"
-          title="在窗口中预览文档"
+          title="在窗口中预览 Word 文档"
           @click="previewing = f"
         >
           <Icon name="file" :size="14" />
@@ -58,9 +58,10 @@
           class="mini-btn"
           :href="f.url"
           :download="f.filename"
-          title="下载文件"
+          :title="'下载 ' + f.filename"
         >
           <Icon name="download" :size="14" />
+          下载{{ labelOf(f) }}
         </a>
         <span v-if="message.route" class="scene-badge" :class="message.route">
           {{ routeLabel(message.route) }}
@@ -179,10 +180,20 @@ function fileInfo(artifact) {
   }
 }
 
+// 预览只支持 Word：docx-preview 读不了 PDF，之前把 PDF 也挂成“预览快报”必然失败
+const previewFiles = computed(() => docFiles.value.filter((f) => isDocx(f.filename)))
+
+function isDocx(name) {
+  return String(name || '').toLowerCase().endsWith('.docx')
+}
+
 function labelOf(f) {
-  const name = f.filename || ''
-  if (name.includes('快报')) return '快报'
-  return ''
+  const full = String(f.filename || '')
+  const base = full.includes('快报') ? '快报' : '文件'
+  const lower = full.toLowerCase()
+  if (lower.endsWith('.docx')) return `${base}(Word)`
+  if (lower.endsWith('.pdf')) return `${base}(PDF)`
+  return base
 }
 
 async function copyText() {

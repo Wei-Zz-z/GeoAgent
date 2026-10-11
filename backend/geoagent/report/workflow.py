@@ -15,6 +15,7 @@ from docx.oxml.ns import qn
 from docx.shared import Cm, Pt, RGBColor
 
 from ..tools.labels import TBLX_LABELS
+from .docx_styles import add_bullet_safe, add_heading_safe
 from .template_fill import refill_docx
 
 
@@ -360,9 +361,9 @@ def fill_review_report(
         pending.append(f'{anchor["id"]} · 图表数据与位置尚未绑定')
     if pending:
         document = Document(output)
-        document.add_heading("待核实事项", level=1)
+        add_heading_safe(document, "待核实事项")
         document.add_paragraph("以下内容尚未取得可靠答案或未完成位置绑定，不应作为正式业务结论。")
         for item in pending:
-            document.add_paragraph(item, style="List Bullet")
+            add_bullet_safe(document, item)
         document.save(output)
     return output

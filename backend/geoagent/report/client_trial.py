@@ -10,12 +10,13 @@ from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
+from ..datasets import FALLBACK_TABLE, default_registry
 from ..tools.categories import category_codes
 from .template_fill import refill_docx
 
 
 TEMPLATE_SHA256 = "b4757efdb23483738e8cb1255d31567ae3648ec349eb17a648581937fcf48c56"
-TABLE = 'data."2026_1_change_landuse"'
+# 期次表名不写死：由 _current_table() 按 datasets.json 的默认期次解析。
 CITY_NAMES = {
     "3301": "杭州市", "3302": "宁波市", "3303": "温州市", "3304": "嘉兴市",
     "3305": "湖州市", "3306": "绍兴市", "3307": "金华市", "3308": "衢州市",
@@ -44,8 +45,21 @@ def _codes_in(codes: list[str]) -> str:
     return ", ".join(f"'{code}'" for code in codes)
 
 
-async def query_client_trial(gateway: Any, skills_dir: Path) -> dict[str, Any]:
+def _current_table() -> str:
+    """当期期次表：取 datasets.json 的默认期次，未登记时回退兜底表。
+
+    快报是按期次出品的文档（模板本身写明期次），因此默认跟随注册表默认期次；
+    需要指定其它期次时，调用方通过 table 参数传入。
+    """
+    period = default_registry().default
+    return period.table if period is not None else FALLBACK_TABLE
+
+
+async def query_client_trial(
+    gateway: Any, skills_dir: Path, table: str | None = None
+) -> dict[str, Any]:
     """固定只读 SQL；所有数值保留平方米原值，显示阶段再换算为亩。"""
+    table = table or _current_table()
     crop = '"TBLX" IN (\'01\', \'1\')'
     orig = '"DLBM" LIKE \'01%\''
     construction_codes = category_codes("construction", skills_dir)
@@ -62,7 +76,7 @@ async def query_client_trial(gateway: Any, skills_dir: Path) -> dict[str, Any]:
         f'COALESCE(SUM(CASE WHEN {inflow} AND "DLBM" ~ \'^(05|06|07|08|09|100[1-5]|100[7-9]|1109|1201)\' THEN "MJ" END),0) AS from_construction, '
         f'COALESCE(SUM(CASE WHEN {inflow} AND "DLBM" IN (\'1104\',\'1104A\',\'1104K\') THEN "MJ" END),0) AS from_pond, '
         f'COALESCE(SUM(CASE WHEN {construction} THEN "MJ" END),0) AS construction '
-        f'FROM {TABLE}'
+        f'FROM {table}'
     )
     total_rows = (await gateway.run_sql(sql, conversation_id="client_trial"))["rows"]
     if len(total_rows) != 1:
@@ -74,11 +88,11 @@ async def query_client_trial(gateway: Any, skills_dir: Path) -> dict[str, Any]:
     )
     city_sql = (
         f'SELECT LEFT("XZQDM"::text,4) AS code, {area_parts} '
-        f'FROM {TABLE} GROUP BY LEFT("XZQDM"::text,4) ORDER BY code'
+        f'FROM {table} GROUP BY LEFT("XZQDM"::text,4) ORDER BY code'
     )
     county_sql = (
         f'SELECT "XZQDM" AS code, "XMC" AS name, {area_parts} '
-        f'FROM {TABLE} GROUP BY "XZQDM", "XMC" ORDER BY code'
+        f'FROM {table} GROUP BY "XZQDM", "XMC" ORDER BY code'
     )
     cities = (await gateway.run_sql(city_sql, conversation_id="client_trial"))["rows"]
     counties = (await gateway.run_sql(county_sql, conversation_id="client_trial"))["rows"]

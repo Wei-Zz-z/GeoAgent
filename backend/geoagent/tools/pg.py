@@ -381,7 +381,7 @@ class JsonlAuditSink:
 
 _DEFAULT_DESCRIPTIONS = {
     "data.2026_1_change_landuse": (
-        "2026 年第一期地类变化图斑（原土地类型 DLBM/DLMC、变化后图斑类型 TBLX、面积 MJ 平方米）"
+        "2026 年第一期地类变化图斑（原土地类型 DLBM/DLMC、变化后图斑类型 TBLX、面积 MJ 平方米，展示按亩）"
     ),
 }
 
@@ -764,6 +764,32 @@ async def describe_table(ctx: Any, table: str) -> ToolResult:
     )
 
 
+def _period_mismatch_note(ctx: Any, sql: str) -> str:
+    """自由 SQL 引用了非当前期次的已登记表时给出提示（只提示，不阻断跨期对比）。"""
+    current = getattr(ctx, "dataset", None)
+    registry = getattr(ctx, "datasets", None)
+    if current is None or registry is None:
+        return ""
+    current_table = normalize_qualified(getattr(current, "table", "") or "")
+    known = {normalize_qualified(t): t for t in getattr(registry, "tables", [])}
+    if not known:
+        return ""
+    try:
+        refs = extract_table_refs(
+            [t for t in tokenize_sql(sql) if t.kind not in ("ws", "comment")]
+        )
+    except Exception:
+        return ""
+    others = sorted({known[ref] for ref in refs if ref in known and ref != current_table})
+    if not others:
+        return ""
+    label = getattr(current, "label", "") or ".".join(p for p in current_table if p)
+    return (
+        "注意：本次 SQL 引用了非当前期次的表 " + "、".join(others)
+        + f"，当前会话期次为 {label}。不同期次的数字不能混在同一口径里比较。"
+    )
+
+
 def _row_summary(columns: list[str], rows: list[dict[str, Any]]) -> str:
     if not columns:
         return "columns: (none)"
@@ -779,7 +805,7 @@ def _row_summary(columns: list[str], rows: list[dict[str, Any]]) -> str:
 
 @register_tool(
     "run_sql",
-    "在受控只读库上执行 SELECT 查询并返回表格（自动强制 LIMIT）",
+    "在受控只读库上执行 SELECT 查询并返回表格（自动强制 LIMIT；面积列按 1 平方米=0.0015 亩 换算为亩展示）",
     RunSqlParams,
 )
 async def run_sql(ctx: Any, sql: str) -> ToolResult:
@@ -802,6 +828,9 @@ async def run_sql(ctx: Any, sql: str) -> ToolResult:
     columns, rows = humanize_table(result["columns"], result["rows"])
     note = "（结果已截断至查询上限）" if result["truncated"] else ""
     content = f"查询返回 {result['row_count']} 行{note}。\n" + _row_summary(columns, rows)
+    period_note = _period_mismatch_note(ctx, sql)
+    if period_note:
+        content = f"{content}\n{period_note}"
     return ToolResult(
         tool_call_id="",
         name="run_sql",

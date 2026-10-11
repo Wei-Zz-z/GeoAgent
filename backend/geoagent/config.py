@@ -5,12 +5,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .datasets import DatasetRegistry, load_registry
+from .datasets import resolve_asset_path as resolve_dataset_asset
+
 
 # 土地变化检测库默认白名单：图斑主表 + 地类字典/元数据表。
 # 提示词只描述表结构与口径，编码/名称/大类等"数据知识"由模型按需查询，
 # 避免提示词背字典造成漂移（可通过 GEOAGENT_PG_WHITELIST 覆盖）。
 DEFAULT_PG_WHITELIST: list[str] = [
     'data."2026_1_change_landuse"',
+    'data."2026_2_change_landuse"',
     "knowledge_base.dict_tblx",
     "knowledge_base.dict_land_classification_summary",
 ]
@@ -111,12 +115,32 @@ class Settings:
         self.pg_max_rows = int(os.getenv("GEOAGENT_PG_MAX_ROWS", "200"))
         self.pg_timeout_s = float(os.getenv("GEOAGENT_PG_TIMEOUT_S", "10"))
         self.pg_audit_path = self.data_dir / "pg_audit.jsonl"
+        # 期次数据集：一张套合表 = 一期数据。datasets.json 是期次的唯一来源，
+        # 因此无论白名单是否显式配置，都把已登记期次表并进白名单——否则新登记一期后
+        # 忘了改 .env 就会出现“期次选得到、查询被护栏拒绝”。换一期只改 datasets.json。
+        self.datasets = self._load_datasets()
+        for table in self.datasets.tables:
+                if table not in self.pg_whitelist:
+                    self.pg_whitelist.append(table)
+        # 问答链路：先标准问题匹配（execute=命中即确定性执行 / hint=只作为提示 /
+        # off=关闭），未命中再走自由 SQL 兜底。
+        self.qa_prematch = os.getenv("GEOAGENT_QA_PREMATCH", "execute").strip().lower() or "execute"
+        self.qa_prematch_confidence = float(
+            os.getenv("GEOAGENT_QA_PREMATCH_CONFIDENCE", "0.5")
+        )
         self.pgvector_dsn = os.getenv("GEOAGENT_PGVECTOR_DSN", "").strip() or self.pg_dsn
         # 快报等生成文件输出到仓库外的用户数据目录（默认 %LOCALAPPDATA%/GeoAgent/reports）。
         base_data_home = Path(os.getenv("LOCALAPPDATA", str(Path.home())))
         self.reports_dir = Path(
             os.getenv("GEOAGENT_REPORTS_DIR", str(base_data_home / "GeoAgent" / "reports"))
         )
+
+    def _load_datasets(self) -> DatasetRegistry:
+        """加载期次注册表；资产缺失或损坏时回退空注册表（工具仍有兜底表）。"""
+        try:
+            return load_registry(resolve_dataset_asset(self.skills_dir))
+        except Exception:
+            return DatasetRegistry(periods=(), default_id="")
 
     def profile(self, model_id: str) -> ModelProfile:
         try:

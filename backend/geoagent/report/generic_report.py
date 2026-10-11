@@ -6,6 +6,8 @@ import re
 from typing import Any
 
 from docx import Document
+
+from .docx_styles import add_heading_safe
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -98,7 +100,7 @@ def fill_generic_report(source: Path, parsed: dict[str, Any], output: Path,
                     paragraph._p.get_or_add_pPr().append(shading)
                     paragraph.add_run("【未命中标准问题库，仅供参考】")
     if pending:
-        pending_heading = document.add_heading("待核实事项", level=1)
+        pending_heading = add_heading_safe(document, "待核实事项")
         pending_heading.paragraph_format.page_break_before = True
         document.add_paragraph("以下内容尚未取得可靠结果或未完成绑定，不能作为已完成的统计结论：")
         for slot_id in pending:

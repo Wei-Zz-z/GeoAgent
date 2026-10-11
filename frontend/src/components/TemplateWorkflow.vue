@@ -3,7 +3,7 @@
     <h2>模板生成报告</h2>
     <p>上传 DOCX；仅在无法可靠匹配时请您选择。</p>
     <p><a href="/api/report-templates/sample">下载模板库示例</a></p>
-    <input type="file" accept=".docx" :disabled="busy || chat.streaming" @change="upload" />
+    <input type="file" accept=".docx,.doc" :disabled="busy || chat.streaming" @change="upload" />
     <p v-if="busy">正在解析模板…</p>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="result">
@@ -265,7 +265,8 @@ async function upload(event) {
   referenceBindings.value = {}
   pendingFreeQuestion.value = null
   error.value = ''
-  if (!file.name.toLowerCase().endsWith('.docx') || file.size > 10 * 1024 * 1024) {
+  const name = file.name.toLowerCase()
+  if ((!name.endsWith('.docx') && !name.endsWith('.doc')) || file.size > 10 * 1024 * 1024) {
     error.value = '请选择不超过10MB的DOCX模板。'
     return
   }

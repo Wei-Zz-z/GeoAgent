@@ -110,7 +110,7 @@ def test_column_labels_cover_core_fields():
     assert COLUMN_LABELS["HSX"] == "后时相"
     assert COLUMN_LABELS["JCBH"] == "图斑编号"
     assert COLUMN_LABELS["DLMC"] == "原地类名称"
-    assert COLUMN_LABELS["MJ"] == "面积(平方米)"
+    assert COLUMN_LABELS["MJ"] == "面积(亩)"
     assert COLUMN_LABELS["SFYN"] == "是否涉及永久基本农田"
     assert COLUMN_LABELS["SFHX"] == "是否涉及生态保护红线"
 
@@ -143,18 +143,22 @@ def test_humanize_table_translates_headers_and_tblx_values():
         },
     ]
     labels, out_rows = humanize_table(columns, rows)
-    assert labels == ["主键", "县级行政区名称", "图斑类型", "面积(平方米)", "extra_col"]
+    assert labels == ["主键", "县级行政区名称", "图斑类型", "面积(亩)", "extra_col"]
     assert out_rows[0]["图斑类型"] == "建/构筑物"
     assert out_rows[1]["图斑类型"] == "动土"
     assert out_rows[0]["主键"] == 1
     assert out_rows[0]["extra_col"] == "keep-me"
+    # 库内 MJ 是平方米，展示按 1 平方米 = 0.0015 亩 换算
+    assert out_rows[0]["面积(亩)"] == 0.12
+    assert out_rows[1]["面积(亩)"] == 0.1
 
 
 def test_config_default_whitelist_includes_main_and_dict_tables():
     assert DEFAULT_PG_WHITELIST[0] == 'data."2026_1_change_landuse"'
+    assert 'data."2026_2_change_landuse"' in DEFAULT_PG_WHITELIST
     assert "knowledge_base.dict_tblx" in DEFAULT_PG_WHITELIST
     assert "knowledge_base.dict_land_classification_summary" in DEFAULT_PG_WHITELIST
-    assert len(DEFAULT_PG_WHITELIST) == 3
+    assert len(DEFAULT_PG_WHITELIST) == 4
 
 
 def test_normalize_qualified_handles_quoted_identifiers():
@@ -486,7 +490,8 @@ async def test_run_sql_tool_humanizes_result_table():
     )
     assert not queried.is_error
     table = queried.artifacts[0].data
-    assert table["columns"] == ["主键", "县级行政区名称", "图斑类型", "原地类名称", "面积(平方米)"]
+    assert table["columns"] == ["主键", "县级行政区名称", "图斑类型", "原地类名称", "面积(亩)"]
+    assert table["rows"][0]["面积(亩)"] == 0.3
     assert table["rows"][0]["图斑类型"] == "动土"
     assert table["rows"][1]["图斑类型"] == "建/构筑物"
     assert "图斑类型" in queried.content

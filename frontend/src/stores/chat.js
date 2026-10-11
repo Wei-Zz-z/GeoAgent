@@ -5,9 +5,17 @@ import { api, openChatSocket } from '../api/client'
 let seq = 0
 const uid = () => `m${Date.now()}-${seq++}`
 
+// 每个会话选中的数据表（期次）与智能体记忆在本地，切换会话时不会串台
+const DATASET_PREF_KEY = 'geoagent.datasetByConversation'
+const AGENT_PREF_KEY = 'geoagent.agentByConversation'
+
 export const chat = reactive({
   conversations: [],
   models: [],
+  agents: [],
+  agentId: '',
+  datasets: [],
+  datasetId: '',
   currentId: null,
   currentModel: '',
   messages: [],
@@ -16,6 +24,61 @@ export const chat = reactive({
   _streamAssistant: null,
   _ws: null,
 })
+
+function loadPrefs(key) {
+  try {
+    return JSON.parse(localStorage.getItem(key) || '{}') || {}
+  } catch {
+    return {}
+  }
+}
+
+function savePref(key, conversationId, value) {
+  if (!conversationId || !value) return
+  const prefs = loadPrefs(key)
+  prefs[conversationId] = value
+  try {
+    localStorage.setItem(key, JSON.stringify(prefs))
+  } catch {
+    // 浏览器禁用本地存储时忽略，仅当次会话生效
+  }
+}
+
+// 智能体清单：默认取后端给的 default_id（会话旁选择框）
+function applyAgents(data) {
+  chat.agents = (data && data.agents) || []
+  if (!chat.agents.length) {
+    chat.agentId = ''
+    return
+  }
+  const fallback = (data && data.default_id) || chat.agents[0].id
+  if (!chat.agents.some((a) => a.id === chat.agentId)) chat.agentId = fallback
+}
+
+// 选择本轮使用的智能体；选择结果随每轮提问作为 agent 下发（不走 LLM 路由）
+function selectAgent(agentId) {
+  if (!chat.agents.some((a) => a.id === agentId)) return
+  chat.agentId = agentId
+  savePref(AGENT_PREF_KEY, chat.currentId, agentId)
+}
+
+// 期次（数据表）列表：默认取后端登记的 default_id
+function applyDatasets(data) {
+  chat.datasets = (data && data.datasets) || []
+  if (!chat.datasets.length) {
+    chat.datasetId = ''
+    return
+  }
+  const fallback = (data && data.default_id) || chat.datasets[0].id
+  if (!chat.datasets.some((d) => d.id === chat.datasetId)) chat.datasetId = fallback
+}
+
+// 选择本轮统计使用的数据表；选择结果随每轮提问作为 dataset_id 下发
+function selectDataset(datasetId) {
+  if (!chat.datasets.some((d) => d.id === datasetId)) return
+  chat.datasetId = datasetId
+  savePref(DATASET_PREF_KEY, chat.currentId, datasetId)
+}
 
 function parseArgs(raw) {
   if (typeof raw === 'string') {
@@ -214,9 +277,16 @@ function handleEvent(event) {
 }
 
 async function init() {
-  const [modelsData, convsData] = await Promise.all([api.listModels(), api.listConversations()])
+  const [modelsData, convsData, datasetsData, agentsData] = await Promise.all([
+    api.listModels(),
+    api.listConversations(),
+    api.listDatasets(),
+    api.listAgents(),
+  ])
   chat.models = modelsData.models || []
   chat.conversations = convsData.conversations || []
+  applyDatasets(datasetsData)
+  applyAgents(agentsData)
   if (!chat.conversations.length) {
     const conv = await api.createConversation({ title: '新会话' })
     chat.conversations.unshift(conv)
@@ -233,6 +303,15 @@ async function selectConversation(id) {
   chat.error = ''
   const conv = await api.getConversation(id)
   chat.currentModel = conv.model || ''
+  // 恢复该会话上次选中的数据表与智能体；没有记录或已失效时回落到默认值
+  const savedDataset = loadPrefs(DATASET_PREF_KEY)[id]
+  if (savedDataset && chat.datasets.some((d) => d.id === savedDataset)) {
+    chat.datasetId = savedDataset
+  }
+  const savedAgent = loadPrefs(AGENT_PREF_KEY)[id]
+  if (savedAgent && chat.agents.some((a) => a.id === savedAgent)) {
+    chat.agentId = savedAgent
+  }
   chat.messages = buildRenderMessages(conv.messages || [])
   connect()
 }
@@ -289,7 +368,12 @@ function sendMessage(content, origin = null) {
   const text = String(content || '').trim()
   if (!text || chat.streaming || !chat._ws || chat._ws.readyState !== WebSocket.OPEN) return false
   chat.messages.push({ id: uid(), role: 'user', content: text })
-  chat._ws.send(JSON.stringify({ type: 'user', content: text, ...(origin || {}) }))
+  const payload = { type: 'user', content: text, ...(origin || {}) }
+  // 显式带上当前选中的数据表（期次）：后端优先按它决定统计哪张表
+  if (!payload.dataset_id && chat.datasetId) payload.dataset_id = chat.datasetId
+  // 显式带上当前选择的智能体：后端直接交给它，不再做 LLM 路由
+  if (!payload.agent && chat.agentId) payload.agent = chat.agentId
+  chat._ws.send(JSON.stringify(payload))
   return true
 }
 
@@ -298,6 +382,8 @@ chat.selectConversation = selectConversation
 chat.createConversation = createConversation
 chat.deleteConversation = deleteConversation
 chat.switchModel = switchModel
+chat.selectDataset = selectDataset
+chat.selectAgent = selectAgent
 chat.editAndResend = editAndResend
 chat.sendMessage = sendMessage
 chat.refreshMessages = refreshMessages

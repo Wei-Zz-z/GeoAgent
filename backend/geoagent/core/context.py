@@ -24,6 +24,13 @@ class ConversationContext:
     event_sink: Optional[EventSink] = None
     skills: Any = None  # 类型：skills.SkillLoader（技能加载器）
     pg: Any = None  # 类型：tools.pg.PgGateway（受控数据库网关，未配置时为 None）
+    datasets: Any = None  # 类型：datasets.DatasetRegistry（期次数据集注册表）
+    dataset: Any = None  # 类型：datasets.DatasetPeriod（本轮解析出的期次）
+    dataset_id: str = ""  # 前端显式指定的期次；为空则按问题文本识别，再退默认期次
+    agent_id: str = ""  # 前端"智能体"选择框指定的智能体；为空则走 RouterNode 兜底
+    settings: Any = None  # 类型：config.Settings（问答链路开关等）
+    period_notice: str = ""  # 期次提示（如问题提到的是未登记期次）
+    prematch_hint: str = ""  # 标准问题命中提示（qa_prematch=hint 时注入提示词）
     embeddings: Any = None  # 类型：core.embedding.EmbeddingService
     knowledge: Any = None  # 类型：knowledge.kb.KnowledgeBase
     reports_dir: Any = None  # 类型：Path（快报等生成文件的输出目录，默认在仓库外）

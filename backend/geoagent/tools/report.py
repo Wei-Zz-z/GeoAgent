@@ -1,4 +1,4 @@
-"""土地变化监测快报工具（v1，默认模板，全库统计）。"""
+"""土地变化监测快报工具（默认模板；按会话选择的期次统计，含预警分析）。"""
 
 from __future__ import annotations
 
@@ -11,19 +11,21 @@ from uuid import uuid4
 
 from pydantic import BaseModel
 
+from ..datasets import context_table
 from .registry import get_tools, register_tool
 from .result import Artifact, ToolResult
 
 
 class GenerateBriefingParams(BaseModel):
-    """生成快报参数（v1 全库、默认模板，暂无参数）。"""
+    """生成快报参数（默认模板；统计口径跟随当前会话选择的期次，暂无参数）。"""
 
 
 @register_tool(
     "generate_briefing",
     (
-        "按默认模板生成土地变化监测快报（Word .docx）：对全库执行预定义统计并回填，"
-        "输出到仓库外目录并提供下载。疑似违法占地部分暂缺数据、留空。"
+        "按默认模板生成土地变化监测快报（Word .docx）：统计当前会话选择的期次表并回填，"
+        "输出到仓库外目录并提供下载。正文包含耕地变化、新增建设用地与疑似违法占地（预警）"
+        "三部分；预警依据图斑的永农/红线标记与变化后类型判定，属疑似口径。"
     ),
     GenerateBriefingParams,
 )
@@ -42,8 +44,17 @@ async def generate_briefing(ctx: Any) -> ToolResult:
 
     skills = getattr(ctx, "skills", None)
     skills_dir = getattr(skills, "skills_dir", None) if skills is not None else None
+    # 数据表跟随会话上方“数据表”选择框：ctx.dataset 由本轮期次解析写入
+    table = context_table(ctx)
+    period = getattr(ctx, "dataset", None)
+    period_label = str(getattr(period, "label", "") or "")
     try:
-        stats = await compute_briefing_stats(gateway, skills_dir=skills_dir)
+        stats = await compute_briefing_stats(
+            gateway,
+            skills_dir=skills_dir,
+            table=table,
+            period_label=period_label,
+        )
     except Exception as exc:
         return ToolResult(
             tool_call_id="",
@@ -55,7 +66,8 @@ async def generate_briefing(ctx: Any) -> ToolResult:
     if reports_dir is None:
         base_home = Path(os.getenv("LOCALAPPDATA", str(Path.home())))
         reports_dir = Path(os.getenv("GEOAGENT_REPORTS_DIR", str(base_home / "GeoAgent" / "reports")))
-    out_path = reports_dir / f"地类变化监测快报_2026年第一期_{uuid4().hex[:8]}.docx"
+    label_part = period_label or "全库"
+    out_path = reports_dir / f"地类变化监测快报_{label_part}_{uuid4().hex[:8]}.docx"
     try:
         await asyncio.to_thread(build_briefing_docx, stats, out_path)
     except Exception as exc:
@@ -73,15 +85,31 @@ async def generate_briefing(ctx: Any) -> ToolResult:
     except PdfConversionError as exc:
         pdf_error = str(exc)
 
+    yongnong = stats.get("yongnong", {}) or {}
+    redline = stats.get("redline", {}) or {}
+    period_line = (
+        f"- 统计期次: {period_label}（{table}）" if period_label else f"- 统计数据表: {table}"
+    )
+    # 文件走卡片里的预览/下载按钮，正文不暴露本机路径与内部下载链接
+    if pdf_error is None:
+        formats_line = "- 输出文件: Word + PDF（见上方卡片，可预览 Word / 下载）"
+    else:
+        formats_line = f"- 输出文件: Word（PDF 未生成：{pdf_error}）"
     lines = [
-        "土地变化监测快报已生成（Word）：",
-        f"文件路径: {out_path}",
-        f"下载: /api/files/reports/{quote(out_path.name)}",
+        "土地变化监测快报已生成：",
+        period_line,
+        formats_line,
         f"- 变化图斑总数: {stats['total_n']} 个",
         f"- 总面积: {_fmt(stats['total_area'])} 亩",
         f"- 耕地净变化面积: {_fmt(stats['crop_net_area'])} 亩",
         f"- 建设用地(变化后)面积: {_fmt(stats['cur_const']['area'])} 亩",
         f"- 其中原耕地面积: {_fmt(stats['crop2const']['area'])} 亩",
+        f"- 疑似占用永久基本农田: {yongnong.get('n', 0)} 个 / "
+        f"{_fmt(yongnong.get('area', 0))} 亩",
+        f"- 生态保护红线内疑似新增建设: {redline.get('n', 0)} 个 / "
+        f"{_fmt(redline.get('area', 0))} 亩",
+        "提示：预警口径为“疑似”（涉及永农/红线 + 变化后为建设类），"
+        "违法认定需叠加农转用、供地等审批数据。",
     ]
     artifacts = [
         Artifact(
@@ -94,7 +122,6 @@ async def generate_briefing(ctx: Any) -> ToolResult:
         )
     ]
     if pdf_error is None:
-        lines.insert(3, f"PDF下载: /api/files/reports/{quote(pdf_path.name)}")
         artifacts.append(
             Artifact(
                 kind="file",
@@ -105,8 +132,6 @@ async def generate_briefing(ctx: Any) -> ToolResult:
                 },
             )
         )
-    else:
-        lines.insert(3, f"PDF转换未完成（Word仍可正常下载）：{pdf_error}")
     artifacts.append(
         Artifact(
             kind="table",
@@ -114,11 +139,17 @@ async def generate_briefing(ctx: Any) -> ToolResult:
             data={
                 "columns": ["指标", "数值"],
                 "rows": [
+                    ["统计期次", period_label or "（默认期次）"],
+                    ["统计数据表", table],
                     ["变化图斑总数(个)", stats["total_n"]],
                     ["总面积(亩)", _fmt(stats["total_area"])],
                     ["耕地净变化面积(亩)", _fmt(stats["crop_net_area"])],
                     ["建设用地(变化后)面积(亩)", _fmt(stats["cur_const"]["area"])],
                     ["其中原耕地面积(亩)", _fmt(stats["crop2const"]["area"])],
+                    ["疑似占用永久基本农田(个)", yongnong.get("n", 0)],
+                    ["疑似占用永久基本农田(亩)", _fmt(yongnong.get("area", 0))],
+                    ["红线内疑似新增建设(个)", redline.get("n", 0)],
+                    ["红线内疑似新增建设(亩)", _fmt(redline.get("area", 0))],
                 ],
             },
         )

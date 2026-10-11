@@ -7,7 +7,34 @@
           {{ shortModel(chat.currentModel) }} · {{ formatWhen(currentConv?.updated_at) }}
         </div>
       </div>
-      <span v-if="chat.streaming" class="live-badge"><span class="dot"></span>分析中</span>
+      <div class="chat-head-actions">
+        <div ref="agentEl" class="model-picker">
+          <button
+            class="model-btn agent-btn"
+            :title="currentAgent ? currentAgent.description : '选择本轮使用的智能体'"
+            :disabled="chat.streaming"
+            @click="agentOpen = !agentOpen"
+          >
+            <span class="agent-dot"></span>
+            <span class="model-text">{{ currentAgent ? currentAgent.label : '选择智能体' }}</span>
+            <Icon name="chevron-down" :size="14" />
+          </button>
+          <div v-if="agentOpen" class="model-menu agent-menu">
+            <div
+              v-for="a in chat.agents"
+              :key="a.id"
+              class="model-opt"
+              :class="{ active: a.id === chat.agentId }"
+              @click="onPickAgent(a)"
+            >
+              <span class="model-name">{{ a.label }}</span>
+              <span v-if="a.id === chat.agentId" class="model-note">使用中</span>
+            </div>
+            <div v-if="currentAgent" class="agent-hint">{{ currentAgent.description }}</div>
+          </div>
+        </div>
+        <span v-if="chat.streaming" class="live-badge"><span class="dot"></span>分析中</span>
+      </div>
     </header>
 
     <div v-if="chat.error" class="error-banner">
@@ -46,6 +73,36 @@
 
     <footer class="composer-area">
       <div class="composer">
+        <div class="composer-scope">
+          <div class="dataset-block">
+            <span class="dataset-label">数据表</span>
+            <div ref="datasetEl" class="model-picker">
+              <button
+                class="model-btn dataset-btn"
+                :title="currentDataset ? currentDataset.table : '选择本轮统计使用的数据表'"
+                :disabled="chat.streaming"
+                @click="datasetOpen = !datasetOpen"
+              >
+                <span class="dataset-dot"></span>
+                <span class="model-text">{{ currentDataset ? currentDataset.label : '默认数据表' }}</span>
+                <Icon name="chevron-down" :size="14" />
+              </button>
+              <div v-if="datasetOpen" class="model-menu dataset-menu">
+                <div
+                  v-for="d in chat.datasets"
+                  :key="d.id"
+                  class="model-opt"
+                  :class="{ active: d.id === chat.datasetId }"
+                  @click="onPickDataset(d)"
+                >
+                  <span class="model-name">{{ d.label }}</span>
+                  <span class="model-note">{{ d.id === chat.datasetId ? '使用中' : d.table }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <span class="scope-hint">面积按亩统计</span>
+        </div>
         <textarea
           ref="ta"
           v-model="draft"
@@ -120,6 +177,10 @@ const messagesEl = ref(null)
 const ta = ref(null)
 const pickerEl = ref(null)
 const pickerOpen = ref(false)
+const datasetEl = ref(null)
+const datasetOpen = ref(false)
+const agentEl = ref(null)
+const agentOpen = ref(false)
 let tipTimer = null
 
 const suggestions = [
@@ -133,6 +194,14 @@ const currentConv = computed(
   () => chat.conversations.find((c) => c.id === chat.currentId) || null,
 )
 const currentTitle = computed(() => currentConv.value?.title || '新对话')
+// 当前选中的数据表（期次）：决定本轮统计查哪张套合表
+const currentDataset = computed(
+  () => chat.datasets.find((d) => d.id === chat.datasetId) || null,
+)
+// 会话旁选择的本轮智能体：后端直接交给它，不再做 LLM 路由
+const currentAgent = computed(
+  () => chat.agents.find((a) => a.id === chat.agentId) || null,
+)
 
 // 只有最后一条用户问题允许“修改并重新生成”
 const lastUserIndex = computed(() => {
@@ -151,7 +220,7 @@ watch(
   },
 )
 
-// 模型菜单打开时，点击菜单外部自动收起
+// 模型 / 数据表菜单打开时，点击菜单外部自动收起
 watch(pickerOpen, (open) => {
   if (open) {
     document.addEventListener('mousedown', onOutside)
@@ -162,8 +231,30 @@ watch(pickerOpen, (open) => {
   }
 })
 
+watch(datasetOpen, (open) => {
+  if (open) {
+    document.addEventListener('mousedown', onOutsideDataset)
+    document.addEventListener('keydown', onKeydown)
+  } else {
+    document.removeEventListener('mousedown', onOutsideDataset)
+    document.removeEventListener('keydown', onKeydown)
+  }
+})
+
+watch(agentOpen, (open) => {
+  if (open) {
+    document.addEventListener('mousedown', onOutsideAgent)
+    document.addEventListener('keydown', onKeydown)
+  } else {
+    document.removeEventListener('mousedown', onOutsideAgent)
+    document.removeEventListener('keydown', onKeydown)
+  }
+})
+
 onBeforeUnmount(() => {
   document.removeEventListener('mousedown', onOutside)
+  document.removeEventListener('mousedown', onOutsideDataset)
+  document.removeEventListener('mousedown', onOutsideAgent)
   document.removeEventListener('keydown', onKeydown)
   if (tipTimer) clearTimeout(tipTimer)
 })
@@ -172,8 +263,20 @@ function onOutside(e) {
   if (pickerEl.value && !pickerEl.value.contains(e.target)) pickerOpen.value = false
 }
 
+function onOutsideDataset(e) {
+  if (datasetEl.value && !datasetEl.value.contains(e.target)) datasetOpen.value = false
+}
+
+function onOutsideAgent(e) {
+  if (agentEl.value && !agentEl.value.contains(e.target)) agentOpen.value = false
+}
+
 function onKeydown(e) {
-  if (e.key === 'Escape') pickerOpen.value = false
+  if (e.key === 'Escape') {
+    pickerOpen.value = false
+    datasetOpen.value = false
+    agentOpen.value = false
+  }
 }
 
 function autosize() {
@@ -185,6 +288,7 @@ function autosize() {
 function sendSuggestion(text) {
   if (chat.sendMessage(text)) {
     pickerOpen.value = false
+    datasetOpen.value = false
     nextTick(autosize)
   }
 }
@@ -192,8 +296,21 @@ function sendSuggestion(text) {
 function onSend() {
   const text = draft.value
   if (!text.trim() || !chat.sendMessage(text)) return
+  pickerOpen.value = false
+  datasetOpen.value = false
+  agentOpen.value = false
   draft.value = ''
   if (ta.value) ta.value.style.height = 'auto'
+}
+
+function onPickDataset(d) {
+  datasetOpen.value = false
+  chat.selectDataset(d.id)
+}
+
+function onPickAgent(a) {
+  agentOpen.value = false
+  chat.selectAgent(a.id)
 }
 
 async function onPickModel(m) {

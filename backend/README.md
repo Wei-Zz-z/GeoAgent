@@ -6,7 +6,9 @@
 
 ## 固定模板解析与报告工作流
 
-前端会话内提供“上传快报模板”入口，当前支持不超过10MB的DOCX。后端
+前端会话内提供“上传快报模板”入口，当前支持不超过 10MB 的 DOCX；老式 `.doc` 会在上传时
+自动转成 DOCX（优先 LibreOffice，可用 `GEOAGENT_DOC_CONVERTER` 指定路径；Windows 下回退
+本机 Microsoft Word），因为模板解析与回填基于 `python-docx`，只能读 OOXML。后端
 `POST /api/report-templates/parse?filename=模板.docx` 解析标题、正文、表格、占位项、样式、图片和图表锚点，返回带原文、原子查询项与稳定回填位置的结构化JSON。
 
 解析问题会与 `skills/qa-library/assets/question_library.json` 中的标准问题进行可解释规则匹配。候选仅供推荐，用户可修改问题、选择候选并确认；确认后问题进入当前智能体会话，展示受控只读SQL调用、结果表格和口径说明。每项查询只执行一次，原始结果同时用于对话、模板回填和图表生成。
@@ -51,6 +53,8 @@ Microsoft Word（Windows）或 LibreOffice 时同步生成 PDF；可用
 | --- | --- | --- |
 | GET | `/api/health` | 健康检查 |
 | GET | `/api/models` | 可用模型列表（含是否已配 key；已内置阿里千问 qwen3.8-27b / qwen3.7-flash / qwen3.7-plus / qwen3.7-max-2026-06-08） |
+| GET | `/api/datasets` | 已登记的期次数据集（一张套合表 = 一期数据，供前端展示/选择期次） |
+| GET | `/api/agents` | 可选智能体目录（sql 土地变化统计问答 / elder_care 养老可达性评估 / chat 通用对话），供会话旁的“智能体”选择框使用 |
 | GET/POST | `/api/conversations` | 会话列表 / 创建会话 |
 | DELETE | `/api/conversations/{id}` | 删除会话（含消息文件） |
 | GET | `/api/conversations/{id}/messages` | 历史消息（含 artifacts） |
@@ -68,19 +72,20 @@ Microsoft Word（Windows）或 LibreOffice 时同步生成 PDF；可用
 | 事件类型 | 方向 | 字段 | 说明 |
 | --- | --- | --- | --- |
 | `turn_start` | 服务端→客户端 | `conversation_id` | 一轮对话开始 |
-| `route` | 服务端→客户端 | `target`, `reason` | 路由结果（sql / elder_care / chat） |
+| `route` | 服务端→客户端 | `target`, `reason` | 本轮使用的智能体（sql / elder_care / chat）；会话已选择智能体时 reason 为“会话选择的智能体”，不再调用路由模型 |
+| `standard_match` | 服务端→客户端 | `matched`, `mode`, `entry_id`, `confidence`, `reasons`, `candidates`, `dataset_id`, `dataset_label`, `table` | 标准问题指标预匹配结果；`matched=false` 表示本轮转自由 SQL 兜底 |
 | `token` | 服务端→客户端 | `delta` | 流式增量文本 |
 | `tool_call` | 服务端→客户端 | `id`, `name`, `arguments` | 正在调用工具 |
 | `tool_result` | 服务端→客户端 | `id`, `name`, `is_error`, `content` | 工具执行结果（摘要文本） |
-| `artifact` | 服务端→客户端 | `kind`, `name`, `data` | 可视化产物（geojson / table / chart / file 等） |
+| `artifact` | 服务端→客户端 | `kind`, `name`, `data` | 可视化产物（geojson / table / chart / file 等）；geojson 可带 `data.style`，预警图斑为红色描边 + 半透明红填充 |
 | `subagent_start` | 服务端→客户端 | `id`, `prompt` | 子 Agent 开始运行（task） |
 | `subagent_end` | 服务端→客户端 | `id`, `is_error`, `content` | 子 Agent 结束并返回最终文本 |
 | `message` | 服务端→客户端 | `role`, `content`, `model` | 最终助手消息 |
 | `error` | 服务端→客户端 | `message` | 错误信息 |
 | `turn_end` | 服务端→客户端 | `conversation_id` | 一轮对话结束 |
-| `user` | 客户端→服务端 | `content` | 用户发送消息 |
+| `user` | 客户端→服务端 | `content`, `agent`, `dataset_id` | 用户发送消息；`agent` 指定本轮智能体（不传走 RouterNode 兜底），`dataset_id` 指定期次表 |
 
-客户端发送格式：`{"type": "user", "content": "..."}`。
+客户端发送格式：`{"type": "user", "content": "...", "agent": "sql", "dataset_id": "2026_2"}`；`agent` 与 `dataset_id` 均可省略。
 
 `token` 事件始终以小段转发：后端会先把上游文本切成 12 字左右的小片再逐片推送；
 若接口不支持流式（例如带工具时流式不可用），后端自动回退到一次性补全，
@@ -189,13 +194,24 @@ SQL 中需按 `describe_table` 返回的原文加双引号，否则 PostgreSQL �
 
 - 原土地类型 = `"DLBM"`/`"DLMC"`（三调地类体系，含农用地/建设用地/未利用地大类）
 - 图斑类型（变化后） = `"TBLX"`（影像地类体系，33 类；数据中 1-4 前导零为 01-04）
-- 面积 `"MJ"` 单位平方米（当前按平方米测试，确认其他单位后再调整）
+- 面积 `"MJ"` 库内单位为平方米；对用户展示统一换算为亩（1 平方米 = 0.0015 亩，见 `tools/units.py`）
 - 无修饰的"地类/耕地/建设用地"默认按原土地类型统计；"图斑类型/变化后"按 `TBLX`
 - TBLX→三大类：默认模糊映射模板（`skills/land-report/assets/tblx_categories.json`），
   用户提供正式规则后替换
 
-展示映射：`run_sql` 返回表格的表头与 `TBLX` 值自动映射为中文
-（见 `geoagent/tools/labels.py`）；字段语义或字典更新时需同步该文件。
+展示映射：`run_sql` 返回表格的表头与 `TBLX` 值自动映射为中文、面积列换算为亩
+（见 `geoagent/tools/labels.py` 与 `geoagent/tools/units.py`）；字段语义或字典更新时需同步这些文件。
+
+预警分析（图斑上图）：`warning_yongnong_polygons` / `warning_redline_polygons` 按
+“建设用地（含疑似，19 类：`tools/categories.py` 的 `construction_codes()`）”口径筛出涉及
+永久基本农田（`SFYN=是`）/生态保护红线（`SFHX=是`）的图斑，一次返回数量面积、属性明细表与
+图斑边界 GeoJSON；几何取自主表 `geom`，输出前统一 `ST_Transform(geom, 4326)`，前端以
+EPSG:4326 → EPSG:3857 叠加底图（OSM）渲染。几何当前只有 2026 年第二期有（第一期 `geom`
+全为空），没有几何的期次只给明细并在回答里说明无法出图；结论只能是“疑似”，是否违法需叠加
+农转用/供地等审批数据。预警图层随 GeoJSON 下发 `style`（红色描边 + 半透明红填充），前端按它渲染红色预警图斑。
+问题里出现具体区县（与当期表 `XMC` 精确匹配，如“缙云县”）时，预匹配会把 `county` 下钻给
+预警工具（区县清单按表名缓存，泛称如“每个县/哪些县”不会误判）；若命中的条目表达不了这个
+筛选，则不套用整表口径、直接转自由 SQL，避免按全库口径误答。
 
 提示词瘦身：SQLAgent 的 system prompt 只保留"表结构索引 + 口径 + 纪律"；
 编码/名称/一级类等数据知识放在白名单字典（dict_tblx、合并表
@@ -206,7 +222,10 @@ describe_table 查看，快报流程在 `skills/land-report`。
 
 ```env
 GEOAGENT_PG_DSN=postgresql://user:pass@192.168.3.209:5432/zhejiang_agent_project
-GEOAGENT_PG_WHITELIST=data."2026_1_change_landuse",knowledge_base.dict_tblx,knowledge_base.dict_land_classification_summary
+GEOAGENT_PG_WHITELIST=data."2026_1_change_landuse",data."2026_2_change_landuse",knowledge_base.dict_tblx,knowledge_base.dict_land_classification_summary
+# datasets.json 中登记的全部期次表会自动并入白名单（显式配置时也会并入）
+GEOAGENT_QA_PREMATCH=execute
+GEOAGENT_QA_PREMATCH_CONFIDENCE=0.5
 ```
 
 准确率评估（手动运行，真实库 + 真实 LLM）：
@@ -215,6 +234,48 @@ GEOAGENT_PG_WHITELIST=data."2026_1_change_landuse",knowledge_base.dict_tblx,know
 backend/.venv/Scripts/python.exe scripts/eval_sql_agent.py --refs-only   # 只验证参考 SQL
 backend/.venv/Scripts/python.exe scripts/eval_sql_agent.py               # 跑 LLM 问答并比对
 ```
+
+### 文本化工具调用的兜底（tool-call 标记泄漏）
+
+部分 OpenAI 兼容端点偶发不把模型输出的 XML 风格工具调用解析成结构化 `tool_calls`，
+而是把标记留在正文里（`<function_calls><invoke name="run_sql">...`）。若不处理，
+标记会被当成最终回答流给前端并落库，污染会话历史、诱导模型模仿。
+
+`core/toolcall_guard.py` 提供三层处理，`core/agent.py` 与 `core/llm.py` 分别接入：
+
+- 流式转发前用 `StreamLeakFilter` 缓冲疑似标记，完整标记整段丢弃（不会先显示再删）；
+- 正文里还原出的调用若指向已注册工具，补成真正的工具调用继续执行（消息里带 `tool_calls`）；
+- 还原不了就剥掉标记只留正文；整条回复只有标记时纠正模型一次，仍失败则给出明确说明，
+  绝不让标记外发或落库。
+
+历史数据可用脚本清洗（写入前自动备份 `*.jsonl.bak`）：
+
+```bash
+backend/.venv/Scripts/python.exe scripts/scrub_conversation_leaks.py          # 预览
+backend/.venv/Scripts/python.exe scripts/scrub_conversation_leaks.py --apply  # 执行
+```
+
+## 问数链路：期次数据集、指标预匹配与自由 SQL 兜底
+
+一张套合表 = 一期数据，因此"表名"和"统计口径"必须分开管理：口径写在标准问题条目里
+（`skills/qa-library/assets/question_library.json`，跨期次不变），表名登记在
+`skills/qa-library/assets/datasets.json`（`id` / `label` / `table` / `year` / `round` / `aliases`），
+问题库与确定性工具里的 SQL 只写 `{table}` 占位符，执行前按当期绑定。
+
+一轮问答的顺序（`GEOAGENT_QA_PREMATCH`）：
+
+1. **解析期次**：前端传 `dataset_id` → 问题文本里识别（别名 / "2026年第二期" 之类）→ 默认期次；
+   问题里提到的期次若未登记，直接说明并停止，不用默认期次顶替；
+2. **指标匹配**：`report/question_library.py` 的可解释规则匹配（标准问法 / 别名 / 关键词 /
+   字符重合度，带"违法""平均""前后时项"等口径否决），低于 `GEOAGENT_QA_PREMATCH_CONFIDENCE`
+   视为未命中；
+3. **确定性执行**：命中且 `execute` 模式时，按条目的 `strategy` 调确定性工具或执行参考 SQL，
+   正文由结果生成，数字与口径不经过模型，并标注标准问题编号、口径与期次；
+4. **自由 SQL 兜底**：未命中、执行失败或 `hint` 模式时，进入 SQLAgent 的 LLM 工具循环，
+   命中信息作为提示注入（`hint`），自由 SQL 引用非当前期次的已登记表会附加提示。
+
+事件上新增 `standard_match`（命中与否、条目、置信度、期次、表名），工具卡片仍沿用
+`tool_call` / `tool_result` / `artifact`，因此前端无需改动即可展示。
 
 ## 土地变化监测快报（land-report）
 
@@ -230,15 +291,26 @@ backend/.venv/Scripts/python.exe scripts/eval_sql_agent.py               # 跑 L
 
 - 口径与 SQLAgent 知识卡一致：原土地类型 = DLBM/DLMC，图斑类型 = TBLX；
   TBLX→三大类使用临时映射 `geoagent/tools/categories.py`（正式映射下发后替换）
-- 面积单位平方米，暂未换算；疑似违法占地段落留空（需执法/审批数据）
-- 用户模板上传与单位换算为后续扩展项
+- 面积库内为平方米、展示统一按亩换算（`tools/units.py`）
+- 统计期次跟随会话上方“数据表”选择框（`tools/report.py` 用 `context_table(ctx)` 取表），
+  标题监测期行、正文与输出文件名都标注所选期次
+- 卡片行为：正文只给期次与关键数字，不暴露本机路径与内部下载链接；文件以 artifact 下发，
+  卡片里 Word 可在线预览、Word/PDF 均可下载（PDF 不走 docx-preview，避免预览失败）。
+  正文出口还会做一次兜底清理（`core/toolcall_guard.scrub_internal_links`），模型即使补了
+  “### 下载链接 / [Word 版本](/api/files/…)”也会被去掉；SQLAgent 提示词里同样禁止输出下载链接
+- 第四部分“疑似违法占地情况（预警）”：涉及永农(`SFYN=是`)/红线(`SFHX=是`) 且变化后类型属于
+  建设用地（含疑似，19 类），给出数量面积与分县前 10（表4/表5）；只作疑似提示，
+  违法认定需执法与用地管理信息套合数据
+- 用户模板上传、自定义单位切换为后续扩展项
 
 ## 目录
 
 ```text
 geoagent/
 ├── core/          # node(图) / llm(模型切换) / agent(智能体循环) / context / events
-├── tools/         # 装饰器注册 + Pydantic 校验 + 执行器 + pg 受控 SQL 层 + 快报/统计工具
+├── datasets.py    # 期次数据集注册表（一张套合表 = 一期数据，{table} 占位符绑定）
+├── prematch.py    # 标准问题指标预匹配（命中即确定性执行，未命中转自由 SQL）
+├── tools/         # 装饰器注册 + Pydantic 校验 + 执行器 + pg 受控 SQL 层 + 快报/统计/预警工具
 ├── memory/        # 短期会话窗口（滚动摘要/截断） + 会话存储 + 长期记忆接口占位
 ├── agents/        # 路由器 / SQL 问答 / 通用对话 / 养老评估 Agent 与图编排
 └── server/        # FastAPI 应用与路由

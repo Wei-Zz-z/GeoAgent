@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisco
 from fastapi.responses import FileResponse
 from pathlib import PurePath
 
-from ..agents.graph import build_geo_graph
+from ..agents.graph import DEFAULT_AGENT_ID, agent_catalog, run_turn
 from ..core.context import ConversationContext, EventSink
 from ..core.events import Event
 from ..core.llm import LLMConfigurationError
@@ -71,6 +71,8 @@ def _new_context(
         event_sink=event_sink,
         skills=app.state.skills,
         pg=app.state.pg,
+        datasets=app.state.datasets,
+        settings=app.state.settings,
         embeddings=app.state.embeddings,
         knowledge=app.state.knowledge,
         reports_dir=app.state.settings.reports_dir,
@@ -83,9 +85,21 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@router.get("/agents")
+async def list_agents() -> dict[str, Any]:
+    """可选智能体目录（前端会话旁的"智能体"选择框）。"""
+    return {"agents": agent_catalog(), "default_id": DEFAULT_AGENT_ID}
+
+
 @router.get("/models")
 async def list_models(request: Request) -> dict[str, Any]:
     return {"models": request.app.state.settings.list_profiles()}
+
+
+@router.get("/datasets")
+async def list_datasets(request: Request) -> dict[str, Any]:
+    """已登记的期次数据集（供前端展示/选择期次）。"""
+    return request.app.state.datasets.to_dict()
 
 
 @router.get("/conversations")
@@ -161,8 +175,12 @@ async def send_message(
 
     ctx = _new_context(request.app, conv)
     try:
-        flow = build_geo_graph(router_model=request.app.state.settings.router_model or None)
-        _, payload = await flow.run(ctx, payload=body.content)
+        payload = await run_turn(
+            ctx,
+            body.content,
+            agent_id=body.agent or "",
+            router_model=request.app.state.settings.router_model or None,
+        )
     except LLMConfigurationError as exc:
         raise HTTPException(status_code=502, detail=f"模型不可用: {exc}") from exc
     return {"reply": payload.content, "model": payload.model or conv["model"]}
@@ -210,6 +228,10 @@ async def chat_ws(websocket: WebSocket, conversation_id: str) -> None:
             content = str(data.get("content", "")).strip()
             if not content:
                 continue
+            # 前端可显式指定期次（如界面上选了"2026年第二期"）；未指定则按问题文本识别。
+            ctx.dataset_id = str(data.get("dataset_id", ""))
+            # 会话旁的“智能体”选择框：显式指定时不走 LLM 路由
+            agent_id = str(data.get("agent", "")).strip()
             workflow = app.state.template_workflows.get(str(data.get("workflow_id", "")))
             question = next(
                 (item for item in workflow["questions"]
@@ -230,8 +252,12 @@ async def chat_ws(websocket: WebSocket, conversation_id: str) -> None:
                 "answer_origin": ctx.answer_origin,
             }))
             try:
-                flow = build_geo_graph(router_model=app.state.settings.router_model or None)
-                await flow.run(ctx, payload=content)
+                await run_turn(
+                    ctx,
+                    content,
+                    agent_id=agent_id,
+                    router_model=app.state.settings.router_model or None,
+                )
             except LLMConfigurationError as exc:
                 await ctx.emit(Event("error", {"message": f"模型不可用: {exc}"}))
             except Exception as exc:

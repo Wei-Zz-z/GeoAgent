@@ -1509,3 +1509,72 @@ button {
   color: var(--text-3);
   font-size: 14px;
 }
+
+/* 数据表（期次）选择：位于输入框上方 */
+.composer-scope {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 0;
+}
+
+.dataset-block {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dataset-label {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.dataset-btn .dataset-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.dataset-menu {
+  width: 340px;
+}
+
+.scope-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* 会话旁的智能体选择框（下拉向下展开） */
+.chat-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.agent-btn .agent-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #d93025;
+}
+
+.agent-menu {
+  top: calc(100% + 6px);
+  right: 0;
+  bottom: auto;
+  left: auto;
+  width: 320px;
+}
+
+.agent-hint {
+  margin-top: 4px;
+  padding: 8px 10px 4px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-3);
+}

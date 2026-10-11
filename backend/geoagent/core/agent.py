@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from typing import Any, Optional
+from uuid import uuid4
 
 from ..memory.compactor import ContextCompactor
 from ..tools.builtin import get_builtin_tools
 from ..tools.registry import Tool
 from .events import Event
-from .llm import AssistantMessage
+from .llm import AssistantMessage, ToolCall
 from .node import Node
+from .toolcall_guard import parse_leaked_calls, scrub_internal_links, scrub_leaked_calls
 
 
 class Agent(Node):
@@ -56,6 +58,7 @@ class Agent(Node):
             transcripts_dir=getattr(ctx, "transcripts_dir", None)
         )
         empty_retries = 0
+        leak_retries = 0
 
         for _ in range(self.max_turns):
             # 每次调用模型前先执行四步压缩管线（参考 learn-claude-code s08）。
@@ -117,6 +120,34 @@ class Agent(Node):
                     continue
                 raise
 
+            # 兼容端点偶发：模型把工具调用写成了正文里的 XML 标记。先尽量还原成真正的
+            # 工具调用继续执行；还原不了就剥掉标记，绝不让标记外发或落库。
+            leaked = parse_leaked_calls(final.content or "")
+            if leaked:
+                final.content = scrub_leaked_calls(final.content or "")
+                usable = [call for call in leaked if call.name in self.executor.tool_map]
+                if usable:
+                    final.tool_calls = list(final.tool_calls) + [
+                        ToolCall(
+                            id=f"leak_{uuid4().hex[:8]}",
+                            name=call.name,
+                            arguments=call.arguments,
+                        )
+                        for call in usable
+                    ]
+                elif leak_retries < 1 and not final.content.strip():
+                    # 整条回复只是一个发不出去的标记：纠正一次，且不落库。
+                    leak_retries += 1
+                    ctx.session.add_user(
+                        "你上一条回复把工具调用写成了正文标记，没有真正发出调用。"
+                        "请改用工具调用重新发起，或基于已有结果直接用中文回答。"
+                    )
+                    continue
+                elif not final.content.strip():
+                    final.content = "（本轮模型未按工具调用格式返回结果，已中止。请重试或换一种问法。）"
+
+            # 出口兜底：正文不列内部下载链接（文件走卡片预览/下载）
+            final.content = scrub_internal_links(final.content or "")
             final_dict = final.to_dict()
             final_dict["route"] = getattr(ctx, "route", "") or ""
             if getattr(ctx, "answer_origin", ""):

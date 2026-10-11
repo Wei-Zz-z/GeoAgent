@@ -5,6 +5,7 @@ from mcp import Client
 from docx import Document
 
 from geoagent import mcp_server
+from geoagent.datasets import bind_entry_sql, default_registry
 from geoagent.report.question_library import load_question_library
 from geoagent.config import DEFAULT_PG_WHITELIST
 from geoagent.tools.pg import validate_select_sql
@@ -40,13 +41,19 @@ def test_updated_question_library_keeps_existing_entries() -> None:
     asset = Path(__file__).resolve().parents[2] / "skills/qa-library/assets/question_library.json"
     library = load_question_library(asset)
     ids = [entry["id"] for entry in library["entries"]]
-    assert library["version"] == "1.1"
-    assert len(ids) == 37
-    assert len(set(ids)) == 37
+    assert library["version"] == "1.2"
+    assert len(ids) == 42
+    assert len(set(ids)) == 42
     assert {"total_summary", "by_type_summary", "farmland_inflow_source"}.issubset(ids)
+    registry = default_registry()
     for entry in library["entries"]:
         if entry.get("sql"):
-            validate_select_sql(entry["sql"], DEFAULT_PG_WHITELIST)
+            # 问题库只写 {table} 占位符：绑定期次表名后必须仍能通过白名单护栏。
+            original = entry["sql"]
+            bound = bind_entry_sql(original, registry)
+            if "{table}" in original:
+                assert "2026_1_change_landuse" in bound
+            validate_select_sql(bound, DEFAULT_PG_WHITELIST)
 
 
 @pytest.mark.asyncio

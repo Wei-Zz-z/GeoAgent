@@ -34,6 +34,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     app.state.llm = LLMService(settings)
     app.state.embeddings = EmbeddingService(settings)
     app.state.knowledge = KnowledgeBase(settings, app.state.embeddings)
+    app.state.datasets = settings.datasets
     app.state.store = ConversationStore(settings.data_dir)
     app.state.skills = SkillLoader(settings.skills_dir)
     app.state.skills.scan()

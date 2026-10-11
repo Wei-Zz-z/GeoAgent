@@ -1,10 +1,12 @@
 """土地变化监测快报统计与 Word（docx）生成（v1）。
 
-统计基于 data."2026_1_change_landuse" 单表全量数据，口径与 SQLAgent 知识卡一致：
+统计基于当期套合表（默认期次由 skills/qa-library/assets/datasets.json 决定）全量数据，
+口径与 SQLAgent 知识卡一致：
 - 原土地类型 = "DLBM"/"DLMC"（三调二级类），图斑类型（变化后） = "TBLX"（影像）
 - 面积 "MJ" 原始单位平方米，报告统一换算为亩
 - TBLX → 三大类 使用 tools/categories.py 的临时推断映射（待业务替换）
-- 疑似违法占地需要执法认定/管理信息套合数据，v1 留空
+- 疑似违法（预警）按图斑的永农/红线标记与变化后类型判定，只作疑似提示；
+  违法认定仍需执法与用地管理信息套合数据
 """
 
 from __future__ import annotations
@@ -20,9 +22,10 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Cm, Mm, Pt, RGBColor
 
-from ..tools.categories import category_codes, display_groups
+from ..datasets import FALLBACK_TABLE, default_registry
+from ..tools.categories import category_codes, construction_codes, display_groups
 
-TABLE = 'data."2026_1_change_landuse"'
+# 期次表名不写死：由 _current_table() 按 datasets.json 的默认期次解析。
 CROP_CODES = ("01", "1")
 SEPARATE_CODES = ("DT", "TD", "WL", "TP", "QT")
 
@@ -39,8 +42,29 @@ def _codes_in(codes: list[str]) -> str:
     return ", ".join(f"'{c}'" for c in codes)
 
 
-async def compute_briefing_stats(gw: Any, skills_dir: str | Path | None = None) -> dict[str, Any]:
-    """按统计清单执行查询（全部走受控层，单表只读）。返回指标与表格数据。"""
+def _current_table() -> str:
+    """当期期次表：取 datasets.json 的默认期次，未登记时回退兜底表。
+
+    快报是按期次出品的文档（模板本身写明期次），因此默认跟随注册表默认期次；
+    需要指定其它期次时，调用方通过 table 参数传入。
+    """
+    period = default_registry().default
+    return period.table if period is not None else FALLBACK_TABLE
+
+
+async def compute_briefing_stats(
+    gw: Any,
+    skills_dir: str | Path | None = None,
+    table: str | None = None,
+    period_label: str = "",
+) -> dict[str, Any]:
+    """按统计清单执行查询（全部走受控层，单表只读）。返回指标与表格数据。
+
+    ``table`` 由调用方按会话选择的期次传入（tools/report.py 用 context_table），
+    不传时才回退到 datasets.json 的默认期次。
+    """
+    table = table or _current_table()
+    stats_table = table
     # 同一批查询只记录一次系统时间，后续正文、文件与图表共享，避免生成过程中漂移。
     query_started_at = datetime.now().astimezone()
     const_codes = _codes_in([c for c in category_codes("construction", skills_dir) if c not in SEPARATE_CODES])
@@ -57,24 +81,26 @@ async def compute_briefing_stats(gw: Any, skills_dir: str | Path | None = None) 
 
     stats: dict[str, Any] = {}
     stats["query_started_at"] = query_started_at.isoformat(timespec="seconds")
+    stats["table"] = stats_table
+    stats["period_label"] = str(period_label or "")
     meta = await scalar(
         f'SELECT min("QSX") AS qsx, max("HSX") AS hsx, '
-        f'count(*) AS total_n, sum("MJ") AS total_area FROM {TABLE}'
+        f'count(*) AS total_n, sum("MJ") AS total_area FROM {table}'
     )
     stats["period"] = {"qsx": meta.get("qsx"), "hsx": meta.get("hsx")}
     stats["total_n"] = meta.get("total_n") or 0
     stats["total_area"] = float(meta.get("total_area") or 0)
 
     orig_crop = await scalar(
-        f'SELECT count(*) AS n, sum("MJ") AS area FROM {TABLE} WHERE "DLBM" LIKE \'01%\''
+        f'SELECT count(*) AS n, sum("MJ") AS area FROM {table} WHERE "DLBM" LIKE \'01%\''
     )
     stats["orig_crop"] = {"n": orig_crop.get("n") or 0, "area": float(orig_crop.get("area") or 0)}
 
-    cur_crop = await scalar(f"SELECT count(*) AS n, sum(\"MJ\") AS area FROM {TABLE} WHERE {crop_in}")
+    cur_crop = await scalar(f"SELECT count(*) AS n, sum(\"MJ\") AS area FROM {table} WHERE {crop_in}")
     stats["cur_crop"] = {"n": cur_crop.get("n") or 0, "area": float(cur_crop.get("area") or 0)}
 
     crop2const = await scalar(
-        f'SELECT count(*) AS n, sum("MJ") AS area FROM {TABLE} '
+        f'SELECT count(*) AS n, sum("MJ") AS area FROM {table} '
         f'WHERE "DLBM" LIKE \'01%\' AND {const_in}'
     )
     stats["crop2const"] = {
@@ -83,7 +109,7 @@ async def compute_briefing_stats(gw: Any, skills_dir: str | Path | None = None) 
     }
 
     restore2crop = await scalar(
-        f"SELECT count(*) AS n, sum(\"MJ\") AS area FROM {TABLE} "
+        f"SELECT count(*) AS n, sum(\"MJ\") AS area FROM {table} "
         f"WHERE {restore_dlbm} AND {crop_in}"
     )
     stats["restore2crop"] = {
@@ -91,7 +117,7 @@ async def compute_briefing_stats(gw: Any, skills_dir: str | Path | None = None) 
         "area": float(restore2crop.get("area") or 0),
     }
 
-    cur_const = await scalar(f"SELECT count(*) AS n, sum(\"MJ\") AS area FROM {TABLE} WHERE {const_in}")
+    cur_const = await scalar(f"SELECT count(*) AS n, sum(\"MJ\") AS area FROM {table} WHERE {const_in}")
     stats["cur_const"] = {"n": cur_const.get("n") or 0, "area": float(cur_const.get("area") or 0)}
 
     top_net = await gw.run_sql(
@@ -99,7 +125,7 @@ async def compute_briefing_stats(gw: Any, skills_dir: str | Path | None = None) 
         f'SELECT "XMC" AS xmc, '
         f'COALESCE(SUM(CASE WHEN {crop_in} AND "DLBM" NOT LIKE \'01%\' THEN "MJ" END), 0) AS inflow, '
         f'COALESCE(SUM(CASE WHEN "DLBM" LIKE \'01%\' AND NOT {crop_in} THEN "MJ" END), 0) AS outflow '
-        f"FROM {TABLE} GROUP BY \"XMC\") s WHERE inflow < outflow ORDER BY net ASC LIMIT 10",
+        f"FROM {table} GROUP BY \"XMC\") s WHERE inflow < outflow ORDER BY net ASC LIMIT 10",
         conversation_id="briefing",
     )
     stats["top_net_counties"] = [
@@ -113,23 +139,42 @@ async def compute_briefing_stats(gw: Any, skills_dir: str | Path | None = None) 
     ]
 
     top_const = await gw.run_sql(
-        f'SELECT "XMC" AS xmc, count(*) AS n, sum("MJ") AS area FROM {TABLE} '
+        f'SELECT "XMC" AS xmc, count(*) AS n, sum("MJ") AS area FROM {table} '
         f"WHERE {const_in} GROUP BY \"XMC\" ORDER BY area DESC LIMIT 10",
         conversation_id="briefing",
     )
     stats["top_const_counties"] = [
         {"xmc": r["xmc"], "n": r["n"], "area": float(r["area"])} for r in top_const["rows"]
     ]
+
+    # 预警分析：疑似占用永农 / 红线内的新增建设。
+    # 口径用“建设用地（含疑似）”（含动土/推堆土/瓦砾/推平），与对话里的预警工具一致。
+    warn_in = f"(\"TBLX\" IN ({_codes_in(construction_codes(include_suspect=True))}))"
+    for key, column in (("yongnong", "SFYN"), ("redline", "SFHX")):
+        warn_where = f'"{column}" = \'是\' AND {warn_in}'
+        head = await scalar(
+            f'SELECT count(*) AS n, sum("MJ") AS area FROM {table} WHERE {warn_where}'
+        )
+        stats[key] = {"n": head.get("n") or 0, "area": float(head.get("area") or 0)}
+        warn_rows = await gw.run_sql(
+            f'SELECT "XMC" AS xmc, count(*) AS n, sum("MJ") AS area FROM {table} '
+            f'WHERE {warn_where} GROUP BY "XMC" ORDER BY area DESC LIMIT 10',
+            conversation_id="briefing",
+        )
+        stats[f"{key}_counties"] = [
+            {"xmc": r["xmc"], "n": r["n"], "area": float(r["area"])}
+            for r in warn_rows["rows"]
+        ]
     groups = display_groups(skills_dir)
     stats["categories_display"] = [(label, [item for item in items if item[0] not in SEPARATE_CODES]) for label, items in groups if label != "单列类型（不计入三大类）"]
     stats["categories_display"].append(("单列类型（不计入三大类）", [item for _, items in groups for item in items if item[0] in SEPARATE_CODES]))
     separate = await gw.run_sql(
-        f'SELECT "TBLX" AS code, sum("MJ") AS area FROM {TABLE} '
+        f'SELECT "TBLX" AS code, sum("MJ") AS area FROM {table} '
         f'WHERE "TBLX" IN ({_codes_in(list(SEPARATE_CODES))}) GROUP BY "TBLX" ORDER BY area DESC',
         conversation_id="briefing",
     )
     stats["separate_types"] = [{"code": r["code"], "area": float(r["area"] or 0)} for r in separate["rows"]]
-    types = await gw.run_sql(f'SELECT "TBLX" AS code, sum("MJ") AS area FROM {TABLE} GROUP BY "TBLX" ORDER BY area DESC LIMIT 10', conversation_id="briefing")
+    types = await gw.run_sql(f'SELECT "TBLX" AS code, sum("MJ") AS area FROM {table} GROUP BY "TBLX" ORDER BY area DESC LIMIT 10', conversation_id="briefing")
     stats["top_types"] = [{"code": r["code"], "area": float(r["area"] or 0)} for r in types["rows"]]
 
     stats["crop_net_n"] = stats["cur_crop"]["n"] - stats["orig_crop"]["n"]
@@ -505,7 +550,9 @@ def build_briefing_docx(stats: dict[str, Any], out_path: Path) -> Path:
         generated_at = datetime.fromisoformat(query_started) if query_started else datetime.now().astimezone()
     except (TypeError, ValueError):
         generated_at = datetime.now().astimezone()
-    _add_title_meta(doc, f"监测期：{qsx} 至 {hsx}（2026年第一期）")
+    label = str(stats.get("period_label") or "").strip()
+    period_suffix = f"（{label}）" if label else ""
+    _add_title_meta(doc, f"监测期：{qsx} 至 {hsx}{period_suffix}")
     _add_title_meta(doc, f"查询时间：{generated_at:%Y-%m-%d %H:%M}")
     _new_paragraph(doc, indent_chars=2, line_exact_pt=29)
 
@@ -574,11 +621,37 @@ def build_briefing_docx(stats: dict[str, Any], out_path: Path) -> Path:
     )
     _add_report_chart(doc, 3, "变化后建设用地县域面积排名", stats.get("top_const_counties", []), "xmc", "area")
 
-    _add_section_heading(doc, "四、疑似违法占地情况")
+    _add_section_heading(doc, "四、疑似违法占地情况（预警）")
+    yongnong = stats.get("yongnong", {}) or {}
+    redline = stats.get("redline", {}) or {}
     _add_body(
         doc,
-        "本版暂未接入违法认定及用地管理信息数据（农转用、供地、增减挂钩、采矿权、"
-        "设施农用地/临时用地审批等），相关统计留空，待数据接入后补充。",
+        f"涉及永久基本农田的疑似新增建设图斑 {yongnong.get('n', 0)} 个、"
+        f"面积 {_fmt(yongnong.get('area', 0))} 亩；"
+        f"涉及生态保护红线的疑似新增建设图斑 {redline.get('n', 0)} 个、"
+        f"面积 {_fmt(redline.get('area', 0))} 亩。"
+        "上述结果依据图斑的永久基本农田/生态保护红线标记与变化后图斑类型判定，属“疑似”；"
+        "是否违法需叠加农转用、供地等用地管理信息后认定。",
+    )
+    _add_table_caption(doc, "表4　疑似占用永久基本农田面积前10的县（市、区）")
+    _add_table(
+        doc,
+        ["县（市、区）", "图斑数（个）", "面积（亩）"],
+        [
+            [r["xmc"], r["n"], _fmt(r["area"])]
+            for r in stats.get("yongnong_counties", [])
+        ],
+        [7, 4, 4],
+    )
+    _add_table_caption(doc, "表5　生态保护红线内疑似新增建设面积前10的县（市、区）")
+    _add_table(
+        doc,
+        ["县（市、区）", "图斑数（个）", "面积（亩）"],
+        [
+            [r["xmc"], r["n"], _fmt(r["area"])]
+            for r in stats.get("redline_counties", [])
+        ],
+        [7, 4, 4],
     )
 
     _add_section_heading(doc, "五、统计说明")
@@ -587,7 +660,10 @@ def build_briefing_docx(stats: dict[str, Any], out_path: Path) -> Path:
         "面积统一以亩展示，按1平方米=0.0015亩换算，保留两位小数，数字不加千分位逗号。",
         "动土、推堆土、瓦砾、推平、其他单列统计，不计入三大类；耕地流向这些类型仍计入耕地流出。",
         "TBLX→三大类映射为临时推断版本，正式映射下发后将更新口径。",
-        "统计范围为数据库表全量数据。",
+        "疑似违法（预警）口径：涉及永久基本农田(SFYN=是)或生态保护红线(SFHX=是)，"
+        "且变化后图斑类型属于建设用地（含疑似：含动土、推堆土、瓦砾、推平），"
+        "共 19 类；结果只作疑似提示，违法认定需叠加审批数据。",
+        f"统计范围为数据表 {stats.get('table', '')} 全量数据。",
     ]:
         _add_body(doc, line)
 

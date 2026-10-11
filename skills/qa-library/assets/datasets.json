@@ -1,0 +1,51 @@
+{
+  "name": "land-change-datasets",
+  "version": "1.0",
+  "description": "期次数据集注册表：一张套合表 = 一期数据。问题库与统计工具的 SQL 只写 {table} 占位符，期次由本文件解析。",
+  "default_id": "2026_1",
+  "notes": [
+    "换一期数据 = 在 datasets 里追加一条并改 default_id，无需改代码与问题库。",
+    "table 必须与 GEOAGENT_PG_WHITELIST 的白名单写法一致（schema.表名，含双引号）；已登记期次表会由 config.py 自动并入白名单，无需再手工改 .env。",
+    "aliases 写用户可能说出的期次说法，用于从问题里识别期次；越具体越好。",
+    "口径不写在这里：口径属于 question_library.json 的标准问题条目，跨期次不变。",
+    "前端的期次选择框按本文件渲染，选择结果作为 dataset_id 随每轮提问下发。"
+  ],
+  "datasets": [
+    {
+      "id": "2026_1",
+      "label": "2026年第一期",
+      "table": "data.\"2026_1_change_landuse\"",
+      "year": 2026,
+      "round": 1,
+      "aliases": [
+        "2026年第一期",
+        "2026年第1期",
+        "2026年1期",
+        "2026_1",
+        "2026-1",
+        "第一期",
+        "第1期"
+      ],
+      "note": "2026 年第一期地类变化图斑表（当前默认期次）",
+      "enabled": true
+    },
+    {
+      "id": "2026_2",
+      "label": "2026年第二期",
+      "table": "data.\"2026_2_change_landuse\"",
+      "year": 2026,
+      "round": 2,
+      "aliases": [
+        "2026年第二期",
+        "2026年第2期",
+        "2026年2期",
+        "2026_2",
+        "2026-2",
+        "第二期",
+        "第2期"
+      ],
+      "note": "2026 年第二期地类变化图斑表（与第一期字段结构一致）",
+      "enabled": true
+    }
+  ]
+}

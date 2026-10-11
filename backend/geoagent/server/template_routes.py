@@ -14,6 +14,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from ..datasets import bind_entry_sql
+from ..report.docconvert import DocConversionError, ensure_docx
 from ..report.pdf import PdfConversionError, convert_docx_to_pdf
 from ..report.client_trial import fill_client_trial_report, is_client_trial_template, query_client_trial
 from ..report.supported_templates import generate_supported_report, template_kind
@@ -285,6 +287,10 @@ async def upload_template(request: Request, filename: str) -> dict[str, Any]:
         if len(content) > MAX_UPLOAD:
             raise HTTPException(413, "模板不得超过10MB。")
     try:
+        # 模板解析/回填基于 python-docx，只能读 OOXML：老式 .doc 先转成 .docx
+        content, filename = await asyncio.to_thread(
+            ensure_docx, bytes(content), filename
+        )
         parsed = await asyncio.to_thread(parse_docx, bytes(content), filename)
         atomic_items = await asyncio.to_thread(decompose_atomic_items, parsed)
         library = await asyncio.to_thread(load_question_library, _library_path(request))
@@ -303,6 +309,8 @@ async def upload_template(request: Request, filename: str) -> dict[str, Any]:
             for item in questions
         ] == list(REQUIRED_QUESTION_IDS)
         client_trial_eligible = is_client_trial_template(parsed)
+    except DocConversionError as exc:
+        raise HTTPException(400, str(exc)) from exc
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         raise HTTPException(400, str(exc)) from exc
     workflow_id = uuid4().hex
@@ -314,6 +322,7 @@ async def upload_template(request: Request, filename: str) -> dict[str, Any]:
         "questions": questions,
         "audit": audit,
         "library": library,
+        "dataset": request.app.state.datasets.default,
         "executions": {},
         "scalar_bindings": {},
         "fixed_tables": fixed_tables,
@@ -460,7 +469,11 @@ async def auto_generate_report(
     started_at = datetime.now().astimezone()
     executions: dict[str, dict[str, Any]] = {}
     for entry_id in REQUIRED_QUESTION_IDS:
-        sql = str(entries[entry_id].get("sql", "")).strip()
+        sql = bind_entry_sql(
+            str(entries[entry_id].get("sql", "")).strip(),
+            request.app.state.datasets,
+            workflow.get("dataset"),
+        )
         if not sql:
             raise HTTPException(409, f"标准问题 {entry_id} 缺少参考 SQL，请人工核对。")
         try:
@@ -508,7 +521,11 @@ async def execute_question(
         for candidate in match_question(body.question.strip() or question["question"], workflow["library"])["candidates"]
     ):
         raise HTTPException(409, "该标准问题与当前提问的业务口径不兼容，请重新选择。")
-    sql = str(entry.get("sql", "")).strip()
+    sql = bind_entry_sql(
+        str(entry.get("sql", "")).strip(),
+        request.app.state.datasets,
+        workflow.get("dataset"),
+    )
     if not sql:
         raise HTTPException(400, "所选标准问题没有可执行的参考SQL。")
     if workflow["query_started_at"] is None:

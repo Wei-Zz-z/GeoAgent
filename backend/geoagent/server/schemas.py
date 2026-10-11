@@ -16,6 +16,8 @@ class ModelSwitch(BaseModel):
 
 class UserMessage(BaseModel):
     content: str
+    # 会话选择的智能体（sql / elder_care / chat）；留空则走 RouterNode 兜底
+    agent: Optional[str] = None
 
 
 class MessageOut(BaseModel):
