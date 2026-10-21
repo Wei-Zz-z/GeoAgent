@@ -19,6 +19,8 @@ import LineChart from './charts/LineChart.vue'
 import PieChart from './charts/PieChart.vue'
 import Icon from './Icon.vue'
 
+import { artifactLabel } from '../artifactLabels'
+
 const props = defineProps({
   artifact: { type: Object, required: true },
 })
@@ -27,7 +29,7 @@ const data = computed(() => props.artifact.data || {})
 const kind = computed(() =>
   ['pie', 'bar', 'line'].includes(data.value.chart_type) ? data.value.chart_type : '',
 )
-const chartTitle = computed(() => data.value.title || props.artifact.name || '统计图表')
+const chartTitle = computed(() => data.value.title || artifactLabel(props.artifact.name, 'chart'))
 const labels = computed(() =>
   Array.isArray(data.value.labels) ? data.value.labels.map(String) : [],
 )

@@ -44,6 +44,23 @@
       </button>
     </div>
 
+    <div class="workspace-bar">
+      <button class="workspace-btn county" type="button" :disabled="chat.streaming" @click="openWorkspace('county')">
+        <span class="workspace-icon"><Icon name="chart" :size="16" /></span>
+        <span class="workspace-text">
+          <strong>区县地图</strong>
+          <small>上传图斑，按区县出面积统计图</small>
+        </span>
+      </button>
+      <button class="workspace-btn overlay" type="button" :disabled="chat.streaming" @click="openWorkspace('overlay')">
+        <span class="workspace-icon"><Icon name="database" :size="16" /></span>
+        <span class="workspace-text">
+          <strong>套合入库</strong>
+          <small>前后时相套合成一期数据表</small>
+        </span>
+      </button>
+    </div>
+
     <div ref="messagesEl" class="messages">
       <div class="msg-list">
         <div v-if="!chat.messages.length" class="welcome">
@@ -162,12 +179,34 @@
   </main>
 
   <main v-else class="chat chat-empty">从左侧选择或新建一个会话</main>
+
+  <AppModal
+    :open="workspace === 'county'"
+    title="区县地图统计"
+    subtitle="上传变化图斑（可选行政区边界），生成按区县的面积统计图；不调用数据库与模型。"
+    @close="closeWorkspace"
+  >
+    <CountyMapWorkspace embedded />
+  </AppModal>
+
+  <AppModal
+    :open="workspace === 'overlay'"
+    title="套合入库"
+    subtitle="上传后时相、前时相（必填）与永久基本农田、生态保护红线（可选），套合生成一期数据表并登记期次。"
+    width="min(1400px, 96vw)"
+    @close="closeWorkspace"
+  >
+    <OverlayWorkspace embedded />
+  </AppModal>
 </template>
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import Icon from './Icon.vue'
 import MessageBubble from './MessageBubble.vue'
+import AppModal from './AppModal.vue'
+import CountyMapWorkspace from './CountyMapWorkspace.vue'
+import OverlayWorkspace from './OverlayWorkspace.vue'
 import { chat } from '../stores/chat'
 import { formatWhen, shortModel } from '../display'
 
@@ -181,14 +220,31 @@ const datasetEl = ref(null)
 const datasetOpen = ref(false)
 const agentEl = ref(null)
 const agentOpen = ref(false)
+// 会话窗口上方的工作台入口：区县地图 / 套合入库，统一用大弹窗承载，不做页面跳转
+const workspace = ref('')
+
+function openWorkspace(name) {
+  if (chat.streaming) return
+  workspace.value = name
+}
+
+function closeWorkspace() {
+  workspace.value = ''
+}
 let tipTimer = null
 
-const suggestions = [
-  '耕地转为建设用地的面积是多少？',
-  '按三大类统计各类土地变化面积',
-  '生成本期土地变化监测快报',
-  '分析养老机构的步行可达性',
-]
+// 示例问题：养老场景未启用时（后端智能体清单里没有 elder_care）不展示对应示例
+const suggestions = computed(() => {
+  const items = [
+    '耕地转为建设用地的面积是多少？',
+    '按三大类统计各类土地变化面积',
+    '生成本期土地变化监测快报',
+  ]
+  if (chat.agents.some((a) => a.id === 'elder_care')) {
+    items.push('分析养老机构的步行可达性')
+  }
+  return items
+})
 
 const currentConv = computed(
   () => chat.conversations.find((c) => c.id === chat.currentId) || null,

@@ -2,32 +2,45 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from ..config import elder_care_enabled
 from ..core.events import Event
 from ..core.node import Node
 
-ROUTE_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "route",
-        "description": "判断用户请求应交给哪个智能体",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "target": {
-                    "type": "string",
-                    "enum": ["sql", "elder_care", "chat"],
-                    "description": (
-                        "sql: 数据库查询与土地变化统计（计算/统计/汇总/面积/占比/"
-                        "每种类型/耕地/建设用地/地类/图斑/流向、快报/简报生成）；"
-                        "elder_care: 养老机构可达性/覆盖/床位/供需分析；"
-                        "chat: 其它"
-                    ),
-                }
+
+def route_tool_spec() -> dict[str, Any]:
+    """路由工具定义；养老场景关闭时把 elder_care 从枚举里摘掉。
+
+    这样即使问题里出现"养老"字样，路由模型也没有可选项，不会把请求
+    引到未部署的场景上。
+    """
+    scenes = ["sql"]
+    description = (
+        "sql: 数据库查询与土地变化统计（计算/统计/汇总/面积/占比/"
+        "每种类型/耕地/建设用地/地类/图斑/流向、快报/简报生成）；"
+    )
+    if elder_care_enabled():
+        scenes.append("elder_care")
+        description += "elder_care: 养老机构可达性/覆盖/床位/供需分析；"
+    scenes.append("chat")
+    description += "chat: 其它"
+    return {
+        "type": "function",
+        "function": {
+            "name": "route",
+            "description": "判断用户请求应交给哪个智能体",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "enum": scenes,
+                        "description": description,
+                    }
+                },
+                "required": ["target"],
             },
-            "required": ["target"],
         },
-    },
-}
+    }
 
 # 各目标的判定标准写在 ROUTE_TOOL 的 target 枚举描述里（单一来源），此处只给角色与兜底策略。
 ROUTER_SYSTEM_PROMPT = (
@@ -109,17 +122,19 @@ class RouterNode(Node):
                     {"role": "system", "content": ROUTER_SYSTEM_PROMPT},
                     {"role": "user", "content": user_text},
                 ],
-                tools=[ROUTE_TOOL],
+                tools=[route_tool_spec()],
             )
-            if message.tool_calls:
-                candidate = message.tool_calls[0].arguments.get("target")
-            if candidate in ("sql", "elder_care", "chat"):
+            candidate = (
+                message.tool_calls[0].arguments.get("target") if message.tool_calls else None
+            )
+            allowed = ("sql", "elder_care", "chat") if elder_care_enabled() else ("sql", "chat")
+            if candidate in allowed:
                 target = candidate
             reason = message.content or ""
         except Exception:
             # 兜底：路由模型不可用时改用关键字启发式路由。
             lowered = user_text.lower()
-            if any(k in lowered for k in ROUTE_ELDER_CARE_KEYWORDS):
+            if elder_care_enabled() and any(k in lowered for k in ROUTE_ELDER_CARE_KEYWORDS):
                 target = "elder_care"
             elif any(k in lowered for k in ROUTE_SQL_KEYWORDS):
                 target = "sql"

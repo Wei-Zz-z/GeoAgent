@@ -11,7 +11,7 @@ import pytest
 from geoagent.core.llm import ToolCall
 from geoagent.tools import ToolExecutor
 from geoagent.config import DEFAULT_PG_WHITELIST
-from geoagent.memory.store import ConversationStore
+from geoagent.memory.store import MemoryConversationStore, _json_default
 from geoagent.tools.pg import (
     PgGateway,
     PgGuardError,
@@ -317,10 +317,13 @@ async def test_run_sql_normalizes_json_safe_values():
     assert result["rows"][0] == {"area_m2": 123.45, "ts": "2026-08-31T10:30:00"}
 
 
-def test_store_persists_decimal_artifact(tmp_path):
-    store = ConversationStore(tmp_path)
-    conv = store.create(title="t", model="m")
-    store.add_message(
+async def test_store_persists_decimal_artifact():
+    """工具结果里的 Decimal 必须能落库：jsonb 编码走 _json_default 兜底。"""
+    assert _json_default(Decimal("123.45")) == 123.45
+
+    store = MemoryConversationStore()
+    conv = await store.create(title="t", model="m")
+    await store.add_message(
         conv["id"],
         {
             "role": "tool",
@@ -338,9 +341,9 @@ def test_store_persists_decimal_artifact(tmp_path):
             ],
         },
     )
-    messages = store.messages(conv["id"])
+    messages = await store.messages(conv["id"])
     row = messages[-1]["artifacts"][0]["data"]["rows"][0]
-    assert row["area"] == 123.45
+    assert row["area"] == Decimal("123.45")
 
 
 @pytest.mark.asyncio
@@ -464,7 +467,8 @@ async def test_sql_tools_run_with_fake_gateway():
     )
     assert not queried.is_error
     assert queried.artifacts[0].kind == "table"
-    assert queried.artifacts[0].data["columns"] == ["dict_code", "name"]
+    # 字典表的 name 列展示为中文（自由 SQL 常见英文别名统一在 labels.SQL_ALIAS_LABELS 里翻译）
+    assert queried.artifacts[0].data["columns"] == ["dict_code", "名称"]
 
 
 @pytest.mark.asyncio

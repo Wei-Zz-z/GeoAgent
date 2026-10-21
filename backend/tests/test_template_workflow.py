@@ -185,7 +185,7 @@ def test_supported_endpoint_generates_library_template(tmp_path, monkeypatch) ->
         assert client.get(files["pdf"]["url"]).status_code == 200
 
 
-def test_free_answer_only_binds_single_matching_value(tmp_path, monkeypatch) -> None:
+async def test_free_answer_only_binds_single_matching_value(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("GEOAGENT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.setenv("GEOAGENT_REPORTS_DIR", str(tmp_path / "reports"))
 
@@ -209,13 +209,13 @@ def test_free_answer_only_binds_single_matching_value(tmp_path, monkeypatch) -> 
             f'/api/report-templates/{parsed["workflow_id"]}/questions/'
             f'{question["id"]}/capture-free'
         )
-        app.state.store.add_message(conv["id"], {"role": "user", "content": question["question"]})
-        app.state.store.add_message(conv["id"], {"role": "assistant", "content": "12个，面积34亩"})
+        await app.state.store.add_message(conv["id"], {"role": "user", "content": question["question"]})
+        await app.state.store.add_message(conv["id"], {"role": "assistant", "content": "12个，面积34亩"})
         ambiguous = client.post(url, json={"conversation_id": conv["id"]})
         assert ambiguous.status_code == 200
         assert ambiguous.json()["status"] == "needs_review"
-        app.state.store.add_message(conv["id"], {"role": "user", "content": question["question"]})
-        app.state.store.add_message(conv["id"], {"role": "assistant", "content": "12个"})
+        await app.state.store.add_message(conv["id"], {"role": "user", "content": question["question"]})
+        await app.state.store.add_message(conv["id"], {"role": "assistant", "content": "12个"})
         bound = client.post(url, json={"conversation_id": conv["id"]})
         assert bound.status_code == 200
         assert bound.json()["status"] == "bound_reference"

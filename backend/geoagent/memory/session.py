@@ -16,7 +16,7 @@ class ConversationSession:
     """有界的短期会话消息窗口（消息本身的压缩由 ContextCompactor 负责）。
 
     - 保持 OpenAI 工具调用历史的合法性（清理孤儿 tool 消息）
-    - 绑定 ConversationStore 时支持写穿透持久化
+    - 绑定 ConversationStore 时暂存消息，每轮结束由调用方 flush 落库
     """
 
     store: Any = None
@@ -27,13 +27,14 @@ class ConversationSession:
         normalized = dict(message)
         self._messages.append(normalized)
         if self.store is not None and self.conversation_id:
-            self.store.add_message(self.conversation_id, normalized)
+            # 暂存待落库：Agent 循环保持同步内存操作，每轮结束由调用方 flush()
+            self.store.stage_message(self.conversation_id, normalized)
 
     def add_user(self, content: str) -> None:
         self.add_message({"role": "user", "content": content})
         if self.store is not None and self.conversation_id:
-            # 首条用户消息用于自动生成会话标题（占位标题时）。
-            self.store.update_title_if_placeholder(self.conversation_id, content)
+            # 首条用户消息用于自动生成会话标题（占位标题时），随本轮一起落库
+            self.store.stage_title(self.conversation_id, content)
 
     def add_tool(self, tool_message: dict[str, Any]) -> None:
         # 工具结果不在此截断：大结果由 ContextCompactor 按预算转存/占位处理。
@@ -49,17 +50,27 @@ class ConversationSession:
     def clear(self) -> None:
         self._messages = []
 
-    def restore(self) -> None:
-        """从绑定的会话存储载入已持久化的历史消息。
+    async def restore(self) -> None:
+        """从会话库载入已持久化的历史消息。
 
-        新建连接/请求时调用：磁盘 JSONL 是权威的全量历史（内存压缩只影响当前
+        新建连接/请求时调用：会话库是权威的全量历史（内存压缩只影响当前
         连接内的 LLM 上下文），恢复后顺带清理孤儿 tool 消息，避免脏历史进入模型。
         未绑定 store（如子 Agent 的全新会话）时为空操作。
         """
         if self.store is None or not self.conversation_id:
             return
-        self._messages = self.store.messages(self.conversation_id)
+        self.load(await self.store.messages(self.conversation_id))
+
+    def load(self, messages: list[dict[str, Any]]) -> None:
+        """直接灌入历史消息（无状态调用：历史由调用方提供），并清理孤儿 tool 消息。"""
+        self._messages = [dict(item) for item in messages or []]
         self.drop_orphan_tool_messages()
+
+    async def flush(self) -> None:
+        """把本轮暂存的消息与标题写入会话存储（未绑定 store 时为空操作）。"""
+        if self.store is None or not self.conversation_id:
+            return
+        await self.store.flush(self.conversation_id)
 
     def build_llm_messages(
         self,

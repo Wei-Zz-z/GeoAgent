@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from ..auth.deps import owned_conversation, request_user
 from ..datasets import bind_entry_sql
 from ..report.docconvert import DocConversionError, ensure_docx
 from ..report.pdf import PdfConversionError, convert_docx_to_pdf
@@ -155,7 +156,7 @@ def _answer_summary(entry: dict[str, Any], result: dict[str, Any]) -> str:
     return "\n\n".join(lines)
 
 
-def _append_conversation_result(
+async def _append_conversation_result(
     request: Request,
     conversation_id: str,
     question: str,
@@ -166,12 +167,12 @@ def _append_conversation_result(
     store = request.app.state.store
     if not conversation_id:
         return
-    if store.get(conversation_id) is None:
+    if await owned_conversation(store, conversation_id, request_user(request)) is None:
         raise HTTPException(404, "当前智能体会话不存在。")
     tool_call_id = f"template-{uuid4().hex[:10]}"
-    store.add_message(conversation_id, {"role": "user", "content": question})
-    store.update_title_if_placeholder(conversation_id, question)
-    store.add_message(conversation_id, {
+    await store.add_message(conversation_id, {"role": "user", "content": question})
+    await store.update_title_if_placeholder(conversation_id, question)
+    await store.add_message(conversation_id, {
         "role": "assistant",
         "content": "",
         "route": "sql",
@@ -184,7 +185,7 @@ def _append_conversation_result(
             },
         }],
     })
-    store.add_message(conversation_id, {
+    await store.add_message(conversation_id, {
         "role": "tool",
         "name": "run_sql",
         "tool_call_id": tool_call_id,
@@ -198,14 +199,14 @@ def _append_conversation_result(
             "data": result,
         }],
     })
-    store.add_message(conversation_id, {
+    await store.add_message(conversation_id, {
         "role": "assistant",
         "route": "sql",
         "content": _answer_summary(entry, result),
     })
 
 
-def _append_generation_result(
+async def _append_generation_result(
     request: Request,
     conversation_id: str,
     request_text: str,
@@ -215,14 +216,14 @@ def _append_generation_result(
     if not conversation_id:
         return
     store = request.app.state.store
-    if store.get(conversation_id) is None:
+    if await owned_conversation(store, conversation_id, request_user(request)) is None:
         raise HTTPException(404, "当前智能体会话不存在。")
     tool_call_id = f"report-{uuid4().hex[:10]}"
-    store.add_message(conversation_id, {
+    await store.add_message(conversation_id, {
         "role": "user",
         "content": request_text.strip() or "请根据以上问数结果生成Word和PDF快报。",
     })
-    store.add_message(conversation_id, {
+    await store.add_message(conversation_id, {
         "role": "assistant",
         "content": "",
         "route": "sql",
@@ -246,14 +247,14 @@ def _append_generation_result(
         )
     elif response.get("pdf_error"):
         result_text += f" PDF未生成：{response['pdf_error']}"
-    store.add_message(conversation_id, {
+    await store.add_message(conversation_id, {
         "role": "tool",
         "name": "generate_monitoring_report",
         "tool_call_id": tool_call_id,
         "content": result_text,
         "artifacts": artifacts,
     })
-    store.add_message(conversation_id, {
+    await store.add_message(conversation_id, {
         "role": "assistant",
         "route": "sql",
         "content": (
@@ -358,7 +359,9 @@ async def auto_generate_supported(
     workflow = _workflow(request, workflow_id)
     if template_kind(workflow["template"]) is None:
         raise HTTPException(409, "该模板尚未核验固定统计口径与回填位置。")
-    if body.conversation_id and request.app.state.store.get(body.conversation_id) is None:
+    if body.conversation_id and await owned_conversation(
+        request.app.state.store, body.conversation_id, request_user(request)
+    ) is None:
         raise HTTPException(404, "当前智能体会话不存在。")
     settings = request.app.state.settings
     source = settings.data_dir / "template-workflows" / f"{workflow_id}.docx"
@@ -386,7 +389,7 @@ async def auto_generate_supported(
         "summary": generated["summary"],
         "review_only": True,
     }
-    _append_generation_result(
+    await _append_generation_result(
         request, body.conversation_id,
         "请按已核验的模板固定口径查询并生成 Word/PDF 核验版。", response,
     )
@@ -403,7 +406,9 @@ async def auto_generate_client_trial(
     workflow = _workflow(request, workflow_id)
     if not workflow["client_trial_eligible"]:
         raise HTTPException(409, "仅支持已核验的快报（删除统计数值）模板。")
-    if body.conversation_id and request.app.state.store.get(body.conversation_id) is None:
+    if body.conversation_id and await owned_conversation(
+        request.app.state.store, body.conversation_id, request_user(request)
+    ) is None:
         raise HTTPException(404, "当前智能体会话不存在。")
     started_at = datetime.now().astimezone()
     try:
@@ -439,7 +444,7 @@ async def auto_generate_client_trial(
         "review_only": True,
         "summary": summary,
     }
-    _append_generation_result(
+    await _append_generation_result(
         request, body.conversation_id,
         "请按该模板已核验的统计口径查询、回填并生成 Word 和 PDF。", response,
     )
@@ -456,7 +461,9 @@ async def auto_generate_report(
     workflow = _workflow(request, workflow_id)
     if not workflow["auto_eligible"]:
         raise HTTPException(409, "该模板的统计口径或回填位置尚未全部确认，请先人工核对。")
-    if body.conversation_id and request.app.state.store.get(body.conversation_id) is None:
+    if body.conversation_id and await owned_conversation(
+        request.app.state.store, body.conversation_id, request_user(request)
+    ) is None:
         raise HTTPException(404, "当前智能体会话不存在。")
     entries = {item["id"]: item for item in workflow["library"]["entries"]}
     expected_columns = {
@@ -538,7 +545,7 @@ async def execute_question(
     except Exception as exc:
         raise HTTPException(502, f"标准问题查询失败：{type(exc).__name__}: {exc}") from exc
     display_result = _display_result(result)
-    _append_conversation_result(
+    await _append_conversation_result(
         request,
         body.conversation_id,
         body.question.strip() or question["question"],
@@ -595,9 +602,9 @@ async def capture_free_answer(
     if question is None:
         raise HTTPException(404, "模板问题不存在。")
     store = request.app.state.store
-    if store.get(body.conversation_id) is None:
+    if await owned_conversation(store, body.conversation_id, request_user(request)) is None:
         raise HTTPException(404, "智能体会话不存在。")
-    messages = await asyncio.to_thread(store.messages, body.conversation_id)
+    messages = await store.messages(body.conversation_id)
     last_user = next((index for index in range(len(messages) - 1, -1, -1)
                       if messages[index]["role"] == "user"), -1)
     if last_user < 0 or messages[last_user].get("content", "").strip() != question["question"].strip():
@@ -668,7 +675,11 @@ async def review_extracted_questions(
 ) -> dict[str, Any]:
     """让大模型对照原文复核问题覆盖和候选语义；仅给建议，不改写问题。"""
     workflow = _workflow(request, workflow_id)
-    conversation = request.app.state.store.get(body.conversation_id) if body.conversation_id else None
+    conversation = (
+        await owned_conversation(request.app.state.store, body.conversation_id, request_user(request))
+        if body.conversation_id
+        else None
+    )
     model = (conversation or {}).get("model") or request.app.state.settings.default_model
     known_ids = {question["id"] for question in workflow["questions"]}
     if set(body.questions) - known_ids:
@@ -978,7 +989,7 @@ async def generate_report(
             "filename": pdf_path.name,
             "url": f"/api/files/reports/{quote(pdf_path.name)}",
         }
-    _append_generation_result(
+    await _append_generation_result(
         request,
         body.conversation_id,
         body.request_text,

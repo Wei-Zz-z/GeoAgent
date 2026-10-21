@@ -105,7 +105,7 @@ def test_download_report_endpoint_with_env_dir(tmp_path, monkeypatch):
     assert bad.status_code == 400
 
 
-def test_rollback_last_user_turn(client):
+async def test_rollback_last_user_turn(client):
     """撤回最后一条用户消息时，其后的旧回答应一并被丢弃。"""
     created = client.post("/api/conversations", json={"model": "qwen3.7-flash"})
     cid = created.json()["id"]
@@ -116,8 +116,8 @@ def test_rollback_last_user_turn(client):
 
     # 直接向 store 写入一轮“用户问题 + 助手回答”
     store = client.app.state.store
-    store.add_message(cid, {"role": "user", "content": "旧问题"})
-    store.add_message(cid, {"role": "assistant", "content": "旧回答"})
+    await store.add_message(cid, {"role": "user", "content": "旧问题"})
+    await store.add_message(cid, {"role": "assistant", "content": "旧回答"})
 
     resp = client.post(f"/api/conversations/{cid}/rollback-last-user-turn")
     assert resp.status_code == 200
@@ -127,15 +127,15 @@ def test_rollback_last_user_turn(client):
     assert messages == []
 
 
-def test_conversation_context_restores_history_for_new_connection(client):
+async def test_conversation_context_restores_history_for_new_connection(client):
     """新连接/新请求创建的上下文应载入已持久化历史（断线重连后续聊）。"""
     created = client.post("/api/conversations", json={"title": "续聊"}).json()
     cid = created["id"]
     store = client.app.state.store
-    store.add_message(cid, {"role": "user", "content": "之前的问题"})
-    store.add_message(cid, {"role": "assistant", "content": "之前的回答"})
+    await store.add_message(cid, {"role": "user", "content": "之前的问题"})
+    await store.add_message(cid, {"role": "assistant", "content": "之前的回答"})
 
-    ctx = _new_context(client.app, store.get(cid))
+    ctx = await _new_context(client.app, await store.get(cid))
 
     assert ctx.conversation_id == cid
     assert [m["content"] for m in ctx.session.history()] == [
@@ -173,11 +173,12 @@ def test_template_free_origin_is_checked_and_reset_each_turn(client, monkeypatch
     assert origins == ["template_free", ""]
 
 
-def test_answer_origin_is_display_metadata_not_llm_input(client):
+async def test_answer_origin_is_display_metadata_not_llm_input(client):
     created = client.post("/api/conversations", json={"title": "来源元数据"}).json()
-    client.app.state.store.add_message(created["id"], {
+    store = client.app.state.store
+    await store.add_message(created["id"], {
         "role": "assistant", "content": "仅供参考", "answer_origin": "template_free",
     })
-    ctx = _new_context(client.app, client.app.state.store.get(created["id"]))
+    ctx = await _new_context(client.app, await store.get(created["id"]))
     assert ctx.session.history()[0]["answer_origin"] == "template_free"
     assert "answer_origin" not in ctx.session.build_llm_messages()[0]

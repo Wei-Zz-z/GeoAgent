@@ -2,11 +2,20 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.responses import FileResponse
 from pathlib import PurePath
 
 from ..agents.graph import DEFAULT_AGENT_ID, agent_catalog, run_turn
+from ..auth.deps import current_user, owned_conversation, scope_user
+from ..auth.session import UserIdentity
 from ..core.context import ConversationContext, EventSink
 from ..core.events import Event
 from ..core.llm import LLMConfigurationError
@@ -24,11 +33,23 @@ def _store(request: Request) -> ConversationStore:
 
 @router.get("/files/reports/{filename}")
 async def download_report(filename: str, request: Request) -> FileResponse:
-    """下载生成的 Word 或 PDF 快报。"""
+    """下载生成的 Word 或 PDF 快报。
+
+    两种凭据都接受：网页登录态（Cookie），或 MCP 返回的带签名一次性链接
+    （`?e=<过期时间>&s=<签名>`）——这样外部前端的浏览器直接点链接就能下载。
+    """
     safe = PurePath(filename).name
     suffix = PurePath(safe).suffix.lower()
     if safe != filename or suffix not in {".docx", ".pdf"}:
         raise HTTPException(status_code=400, detail="非法文件名")
+    if getattr(request.state, "user", None) is None:
+        signer = getattr(request.app.state, "download_signer", None)
+        if signer is None or not signer.verify(
+            safe,
+            request.query_params.get("e", ""),
+            request.query_params.get("s", ""),
+        ):
+            raise HTTPException(status_code=401, detail="未登录或下载链接已失效，请重新获取。")
     reports_dir = request.app.state.settings.reports_dir
     path = (reports_dir / safe).resolve()
     if not path.is_relative_to(reports_dir.resolve()) or not path.is_file():
@@ -41,14 +62,19 @@ async def download_report(filename: str, request: Request) -> FileResponse:
     return FileResponse(path, media_type=media_type, filename=safe)
 
 
-def _conversation_or_404(store: ConversationStore, conversation_id: str) -> dict[str, Any]:
-    conv = store.get(conversation_id)
+async def _conversation_or_404(
+    store: ConversationStore,
+    conversation_id: str,
+    user: UserIdentity,
+) -> dict[str, Any]:
+    """取会话；不存在或不属于当前用户都按 404 处理（不暴露他人会话是否存在）。"""
+    conv = await owned_conversation(store, conversation_id, user)
     if conv is None:
         raise HTTPException(status_code=404, detail="conversation not found")
     return conv
 
 
-def _new_context(
+async def _new_context(
     app: Any,
     conversation: dict[str, Any],
     event_sink: Optional[EventSink] = None,
@@ -56,11 +82,11 @@ def _new_context(
     """创建一次对话轮次的运行时上下文，并从持久化历史恢复消息窗口。
 
     同一会话在断线重连 / 切换会话后重新建立连接时，内存中的旧 session 已不存在，
-    这里把 JSONL 中已持久化的历史消息载入新的 ConversationSession，保证多轮续聊。
+    这里把会话库中已持久化的历史消息载入新的 ConversationSession，保证多轮续聊。
     """
     store = app.state.store
     session = ConversationSession(store=store, conversation_id=conversation["id"])
-    session.restore()
+    await session.restore()
     return ConversationContext(
         conversation_id=conversation["id"],
         session=session,
@@ -103,14 +129,19 @@ async def list_datasets(request: Request) -> dict[str, Any]:
 
 
 @router.get("/conversations")
-async def list_conversations(request: Request) -> dict[str, Any]:
-    return {"conversations": _store(request).list()}
+async def list_conversations(
+    request: Request,
+    user: UserIdentity = Depends(current_user),
+) -> dict[str, Any]:
+    """只返回当前登录用户的会话（改造前遗留的无主会话仍可见）。"""
+    return {"conversations": await _store(request).list(owner_id=user.id)}
 
 
 @router.post("/conversations")
 async def create_conversation(
     body: ConversationCreate,
     request: Request,
+    user: UserIdentity = Depends(current_user),
 ) -> dict[str, Any]:
     store = _store(request)
     model = body.model or request.app.state.settings.default_model
@@ -118,21 +149,34 @@ async def create_conversation(
         request.app.state.settings.profile(model)
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return store.create(title=body.title, model=model)
+    return await store.create(
+        title=body.title,
+        model=model,
+        owner_id=user.id,
+        owner_name=user.display_name,
+    )
 
 
 @router.get("/conversations/{conversation_id}")
-async def get_conversation(conversation_id: str, request: Request) -> dict[str, Any]:
+async def get_conversation(
+    conversation_id: str,
+    request: Request,
+    user: UserIdentity = Depends(current_user),
+) -> dict[str, Any]:
     store = _store(request)
-    conv = _conversation_or_404(store, conversation_id)
-    return {**conv, "messages": store.messages(conversation_id)}
+    conv = await _conversation_or_404(store, conversation_id, user)
+    return {**conv, "messages": await store.messages(conversation_id)}
 
 
 @router.get("/conversations/{conversation_id}/messages")
-async def get_messages(conversation_id: str, request: Request) -> dict[str, Any]:
+async def get_messages(
+    conversation_id: str,
+    request: Request,
+    user: UserIdentity = Depends(current_user),
+) -> dict[str, Any]:
     store = _store(request)
-    _conversation_or_404(store, conversation_id)
-    return {"messages": store.messages(conversation_id)}
+    await _conversation_or_404(store, conversation_id, user)
+    return {"messages": await store.messages(conversation_id)}
 
 
 @router.put("/conversations/{conversation_id}/model")
@@ -140,25 +184,28 @@ async def switch_model(
     conversation_id: str,
     body: ModelSwitch,
     request: Request,
+    user: UserIdentity = Depends(current_user),
 ) -> dict[str, Any]:
     store = _store(request)
-    _conversation_or_404(store, conversation_id)
+    await _conversation_or_404(store, conversation_id, user)
     try:
         request.app.state.settings.profile(body.model)
     except KeyError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    conv = store.set_model(conversation_id, body.model)
+    conv = await store.set_model(conversation_id, body.model)
     assert conv is not None
     return conv
 
 
 @router.delete("/conversations/{conversation_id}")
 async def delete_conversation(
-    conversation_id: str, request: Request
+    conversation_id: str,
+    request: Request,
+    user: UserIdentity = Depends(current_user),
 ) -> dict[str, Any]:
     store = _store(request)
-    _conversation_or_404(store, conversation_id)
-    store.delete(conversation_id)
+    await _conversation_or_404(store, conversation_id, user)
+    await store.delete(conversation_id)
     return {"ok": True}
 
 
@@ -167,13 +214,14 @@ async def send_message(
     conversation_id: str,
     body: UserMessage,
     request: Request,
+    user: UserIdentity = Depends(current_user),
 ) -> dict[str, Any]:
     store = _store(request)
-    conv = _conversation_or_404(store, conversation_id)
+    conv = await _conversation_or_404(store, conversation_id, user)
     if not body.content.strip():
         raise HTTPException(status_code=400, detail="content is empty")
 
-    ctx = _new_context(request.app, conv)
+    ctx = await _new_context(request.app, conv)
     try:
         payload = await run_turn(
             ctx,
@@ -183,6 +231,9 @@ async def send_message(
         )
     except LLMConfigurationError as exc:
         raise HTTPException(status_code=502, detail=f"模型不可用: {exc}") from exc
+    finally:
+        # 本轮消息落库（失败时也保留已产生的部分，与旧行为一致）
+        await ctx.session.flush()
     return {"reply": payload.content, "model": payload.model or conv["model"]}
 
 
@@ -190,11 +241,12 @@ async def send_message(
 async def rollback_last_user_turn(
     conversation_id: str,
     request: Request,
+    user: UserIdentity = Depends(current_user),
 ) -> dict[str, Any]:
     """撤回最后一条用户消息及其回答（前端修改文字后以新内容重新发起）。"""
     store = _store(request)
-    _conversation_or_404(store, conversation_id)
-    old = store.rollback_last_user_turn(conversation_id)
+    await _conversation_or_404(store, conversation_id, user)
+    old = await store.rollback_last_user_turn(conversation_id)
     if old is None:
         raise HTTPException(status_code=409, detail="conversation has no user message")
     return {"ok": True, "removed": old.get("content", "")}
@@ -209,13 +261,21 @@ async def chat_ws(websocket: WebSocket, conversation_id: str) -> None:
     await websocket.accept()
     app = websocket.scope["app"]
     store = app.state.store
-    conv = store.get(conversation_id)
+    # 鉴权失败时先给出明确的错误事件再关闭，前端据此提示重新从省域平台进入
+    user = scope_user(websocket)
+    if user is None:
+        await websocket.send_json(
+            {"type": "error", "message": "未登录或登录已过期，请从省域平台重新进入。"}
+        )
+        await websocket.close(code=4401)
+        return
+    conv = await owned_conversation(store, conversation_id, user)
     if conv is None:
         await websocket.send_json({"type": "error", "message": "conversation not found"})
         await websocket.close(code=4404)
         return
 
-    ctx = _new_context(
+    ctx = await _new_context(
         app,
         conv,
         event_sink=lambda event: _ws_send(websocket, event),
@@ -246,7 +306,8 @@ async def chat_ws(websocket: WebSocket, conversation_id: str) -> None:
                 else ""
             )
             # 每轮开始时刷新会话的模型设置（可能已通过 REST 切换过）。
-            ctx.model = store.get(conversation_id)["model"]
+            refreshed = await store.get(conversation_id)
+            ctx.model = (refreshed or conv)["model"]
             await ctx.emit(Event("turn_start", {
                 "conversation_id": conversation_id,
                 "answer_origin": ctx.answer_origin,
@@ -267,6 +328,9 @@ async def chat_ws(websocket: WebSocket, conversation_id: str) -> None:
                         {"message": f"{type(exc).__name__}: {exc}"},
                     )
                 )
+            finally:
+                # 本轮消息落库，保证前端在 turn_end 后能拉到完整历史
+                await ctx.session.flush()
             await ctx.emit(Event("turn_end", {"conversation_id": conversation_id}))
     except WebSocketDisconnect:
         pass

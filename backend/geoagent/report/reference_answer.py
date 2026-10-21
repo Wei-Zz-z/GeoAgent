@@ -48,7 +48,7 @@ def query_scalar(messages: list[dict[str, Any]], expected_unit: str) -> dict[str
             column, value = next(iter(rows[0].items()))
             unit = ("平方米" if column.endswith("_m2") or "平方米" in column else
                     "亩" if column.endswith("_mu") or "亩" in column else
-                    "个" if column in {"n", "图斑数量", "图斑数"} else None)
+                    "个" if column in {"n", "cnt", "count", "数量", "图斑数量", "图斑数"} else None)
             if unit is None and _raw_area_aggregate(sql, column):
                 unit = "平方米"
             if unit is None:

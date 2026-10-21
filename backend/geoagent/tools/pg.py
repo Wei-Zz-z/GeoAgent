@@ -27,7 +27,7 @@ from typing import Any, Optional, Sequence
 import asyncpg
 from pydantic import BaseModel, Field
 
-from .labels import humanize_table
+from .labels import COLUMN_LABELS, humanize_table
 from .registry import get_tools, register_tool
 from .result import Artifact, ToolResult
 
@@ -708,9 +708,14 @@ async def list_tables(ctx: Any) -> ToolResult:
                 kind="table",
                 name="tables",
                 data={
-                    "columns": ["schema", "table", "name", "description"],
+                    "columns": ["模式", "表名", "完整名称", "说明"],
                     "rows": [
-                        {k: t[k] for k in ("schema", "table", "name", "description")}
+                        {
+                            "模式": t["schema"],
+                            "表名": t["table"],
+                            "完整名称": t["quoted"],  # 带引号的可用写法，避免以数字开头的表名被误用
+                            "说明": t["description"],
+                        }
                         for t in tables
                     ],
                 },
@@ -740,16 +745,20 @@ async def describe_table(ctx: Any, table: str) -> ToolResult:
     columns = info["columns"]
     rows = [
         {
-            "column": c["column_name"],
-            "type": c["data_type"],
-            "udt": c["udt_name"],
-            "nullable": c["is_nullable"],
-            "max_length": c["character_maximum_length"],
+            "字段": c["column_name"],
+            "中文名": COLUMN_LABELS.get(str(c["column_name"]), ""),
+            "类型": c["data_type"],
+            "可空": "是" if str(c["is_nullable"]).upper() == "YES" else "否",
+            "最大长度": c["character_maximum_length"] if c["character_maximum_length"] else "",
         }
         for c in columns
     ]
     lines = [f"表 {info['table']} 共 {len(columns)} 列:"]
-    lines += [f"- {r['column']}: {r['type']} (nullable={r['nullable']})" for r in rows]
+    lines += [
+        f"- {r['字段']}（{r['中文名']}）: {r['类型']} (可空={r['可空']})" if r["中文名"]
+        else f"- {r['字段']}: {r['类型']} (可空={r['可空']})"
+        for r in rows
+    ]
     return ToolResult(
         tool_call_id="",
         name="describe_table",
@@ -758,7 +767,7 @@ async def describe_table(ctx: Any, table: str) -> ToolResult:
             Artifact(
                 kind="table",
                 name="table_columns",
-                data={"columns": ["column", "type", "udt", "nullable", "max_length"], "rows": rows},
+                data={"columns": ["字段", "中文名", "类型", "可空", "最大长度"], "rows": rows},
             )
         ],
     )

@@ -2,7 +2,7 @@
   <div class="tool-card" :class="call.status">
     <button class="tool-head" title="展开 / 收起详情" @click="open = !open">
       <Icon :name="iconName" class="tool-icon" :size="15" />
-      <span class="tool-name">{{ toolLabel(call.name) }}</span>
+      <span class="tool-name" :title="call.name">{{ toolLabel(call.name) }}</span>
       <span class="tool-status" :class="call.status">{{ statusText }}</span>
       <Icon name="chevron-down" class="chev" :class="{ open }" :size="14" />
     </button>

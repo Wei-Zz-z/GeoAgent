@@ -25,7 +25,7 @@
 
 <script setup>
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import Map from 'ol/Map'
+import OlMap from 'ol/Map'  // 避免遮蔽 JS 内置 Map
 import View from 'ol/View'
 import GeoJSON from 'ol/format/GeoJSON'
 import Feature from 'ol/Feature'
@@ -77,7 +77,7 @@ onMounted(() => {
   chartLayer = new VectorLayer({ source: new VectorSource({ features: anchors }), declutter: true,
     style: feature => { if (!cache.has(feature)) cache.set(feature, chartStyle(feature)); return cache.get(feature) } })
   watch(chartType, () => { cache.clear(); chartLayer.changed() })
-  map = new Map({ target: mapEl.value, layers: [new VectorLayer({ source,
+  map = new OlMap({ target: mapEl.value, layers: [new VectorLayer({ source,
     style: new Style({ fill: new Fill({ color: '#e2e8f0' }), stroke: new Stroke({ color: '#94a3b8', width: 1 }) }) }), chartLayer],
     view: new View({ center: fromLonLat([120,29]), zoom: 7 }) })
   map.getView().fit(source.getExtent(), { padding: [70,70,70,70], maxZoom: 11 })

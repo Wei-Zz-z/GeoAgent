@@ -1,7 +1,7 @@
 <template>
-  <main style="width:100%; overflow:auto; padding:16px">
-    <a href="/">返回模板与问数</a>
-    <h1>区县地图统计</h1>
+  <main class="county-workspace" :class="{ 'is-embedded': embedded }">
+    <a v-if="!embedded" href="/">返回模板与问数</a>
+    <h1 v-if="!embedded">区县地图统计</h1>
     <p>变化图斑用于统计；另选行政区边界可显示完整区县范围。两份数据按区划代码关联，不调用旧数据库或模型。</p>
     <p><label>变化图斑ZIP：<input type="file" accept=".zip" :disabled="busy" @change="vectorFile = $event.target.files[0]" /></label></p>
     <p><label>行政区边界ZIP（可选）：<input type="file" accept=".zip" :disabled="busy" @change="boundaryFile = $event.target.files[0]" /></label></p>
@@ -14,6 +14,7 @@
 <script setup>
 import { ref } from 'vue'
 import CountyMapView from './CountyMapView.vue'
+const props = defineProps({ embedded: { type: Boolean, default: false } })
 const artifact = ref(null), busy = ref(false), error = ref(''), generation = ref(0)
 const vectorFile = ref(null), boundaryFile = ref(null)
 async function upload() {

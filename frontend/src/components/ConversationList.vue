@@ -29,7 +29,14 @@
     </div>
     <div v-else class="conv-empty">暂无会话，点击右上角新建</div>
 
-    <div class="sidebar-foot">Dev 模式 · 会话全局可见</div>
+    <div class="sidebar-foot">
+      <template v-if="signedIn">
+        <span class="sidebar-user" :title="userDetail">{{ auth.user.name || auth.user.account }}</span>
+        <span class="sidebar-org">{{ auth.user.organization || auth.user.xzqh }}</span>
+        <button class="icon-btn" type="button" title="退出登录" @click="onLogout">退出</button>
+      </template>
+      <span v-else>Dev 模式 · 会话全局可见</span>
+    </div>
 
     <Modal v-if="deleting" title="删除会话" size="sm" @close="deleting = null">
       <p style="margin: 0; line-height: 1.7">
@@ -47,10 +54,17 @@
 import { computed, ref } from 'vue'
 import Icon from './Icon.vue'
 import Modal from './Modal.vue'
+import { auth } from '../auth'
 import { chat } from '../stores/chat'
 import { formatWhen, shortModel } from '../display'
 
 const deleting = ref(null)
+
+// 入口验证开启后展示当前登录用户，并提供退出入口
+const signedIn = computed(() => Boolean(auth.user && !auth.user.is_dev))
+const userDetail = computed(
+  () => auth.user?.organization_line || auth.user?.organization || '',
+)
 
 const groups = computed(() => {
   const labels = ['今天', '昨天', '近 7 天', '更早']
@@ -105,4 +119,28 @@ async function onDeleteConfirmed() {
     chat.error = err.message
   }
 }
+
+async function onLogout() {
+  await auth.logout()
+}
 </script>
+
+<style scoped>
+.sidebar-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar-user {
+  font-weight: 600;
+}
+
+.sidebar-org {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.75;
+}
+</style>

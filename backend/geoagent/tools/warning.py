@@ -203,16 +203,16 @@ async def _run_warning(
             artifacts=[],
         )
 
-    artifacts: list[Artifact] = [
-        Artifact(
-            kind="table",
-            name=f"{spec['title']}{scope_note}明细（面积前 {DETAIL_LIMIT}）",
-            data={
-                "columns": ["主键", "行政区", "图斑类型", "原地类", "面积(亩)", "涉及永农", "涉及红线"],
-                "rows": _detail_rows(detail_rows),
-            },
-        )
-    ]
+    # 明细表与地图放在同一个 artifact 里：前端点表格行即可定位并高亮对应图斑。
+    # linked_table.feature_key 对应 GeoJSON 要素属性，row_key 对应表格列名。
+    table_data = {
+        "columns": ["主键", "行政区", "图斑类型", "原地类", "面积(亩)", "涉及永农", "涉及红线"],
+        "rows": _detail_rows(detail_rows),
+        "feature_key": "objectid",
+        "row_key": "主键",
+    }
+    table_name = f"{spec['title']}{scope_note}明细（面积前 {DETAIL_LIMIT}）"
+    artifacts: list[Artifact] = []
 
     features = 0
     shown_n = 0
@@ -226,17 +226,21 @@ async def _run_warning(
             features = len(collection.get("features") or [])
             shown_n = int(geo_row.get("shown_n") or features)
             if features:
-                # 带上红色样式提示：前端按它渲染预警图层
+                # 红色样式提示 + 关联明细表：前端渲染成可点击定位的「地图 + 表格」
                 styled = dict(collection)
                 styled["style"] = dict(WARNING_STYLE)
-                artifacts.insert(
-                    0,
+                styled["linked_table"] = table_data
+                artifacts.append(
                     Artifact(
                         kind="geojson",
                         name=f"{spec['title']}{scope_note}分布图",
                         data=styled,
-                    ),
+                    )
                 )
+
+    if not features:
+        # 没有几何的期次：退化成纯属性表，保证数据仍可见
+        artifacts.append(Artifact(kind="table", name=table_name, data=table_data))
 
     lines = [
         f"{spec['title']}{scope_note}：{total_n:,} 个，合计 {total_area:,.2f} 亩"
@@ -248,7 +252,11 @@ async def _run_warning(
             if shown_n < total_n
             else f"地图已展示全部 {features} 个图斑边界；"
         )
-        lines.append(note + f"表格列出面积最大的前 {len(detail_rows)} 个，完整属性见表格卡片。")
+        lines.append(
+            note
+            + f"地图下方表格列出面积最大的前 {len(detail_rows)} 个；"
+            "点击表格任意一行可定位并高亮对应图斑。"
+        )
     else:
         reasons = [f"{scope_text}的几何字段 geom 为空或不可用"]
         if geo_error:
