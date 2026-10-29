@@ -163,8 +163,16 @@ class Settings:
         # off=关闭），未命中再走自由 SQL 兜底。
         self.qa_prematch = os.getenv("GEOAGENT_QA_PREMATCH", "execute").strip().lower() or "execute"
         self.qa_prematch_confidence = float(
-            os.getenv("GEOAGENT_QA_PREMATCH_CONFIDENCE", "0.5")
+            os.getenv("GEOAGENT_QA_PREMATCH_CONFIDENCE", "0.42")
         )
+        # 预匹配是否启用 embedding 向量召回 + RRF；未配置 API key 时自动降级为纯规则。
+        self.qa_vector = os.getenv("GEOAGENT_QA_VECTOR", "1").strip().lower() not in {
+            "0", "off", "false", "no",
+        }
+        # 灰度区是否调用 LLM judge 复核候选（只在 candidates/clarify 时调用）。
+        self.qa_judge = os.getenv("GEOAGENT_QA_JUDGE", "1").strip().lower() not in {
+            "0", "off", "false", "no",
+        }
         self.pgvector_dsn = os.getenv("GEOAGENT_PGVECTOR_DSN", "").strip() or self.pg_dsn
         # 入口验证与用户体系：省域平台 ticket 换本系统登录态。
         # dev=不校验（改造前的开发模式，行为不变）；ticket=校验后按用户隔离会话。

@@ -31,6 +31,11 @@ class ConversationContext:
     settings: Any = None  # 类型：config.Settings（问答链路开关等）
     period_notice: str = ""  # 期次提示（如问题提到的是未登记期次）
     prematch_hint: str = ""  # 标准问题命中提示（qa_prematch=hint 时注入提示词）
+    query_state: dict[str, Any] = field(default_factory=dict)  # 多轮追问的轻量状态
+    followup: dict[str, Any] = field(default_factory=dict)  # 本轮追问补全信息
+    followup_notice: str = ""  # 追问无法解析时的定向提示
+    current_question: str = ""  # 用户本轮原话（用于数字溯源/审计）
+    answer_metadata: dict[str, Any] = field(default_factory=dict)  # 最终回答附加元数据
     embeddings: Any = None  # 类型：core.embedding.EmbeddingService
     knowledge: Any = None  # 类型：knowledge.kb.KnowledgeBase
     reports_dir: Any = None  # 类型：Path（快报等生成文件的输出目录，默认在仓库外）

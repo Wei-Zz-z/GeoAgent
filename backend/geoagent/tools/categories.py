@@ -5,8 +5,9 @@
 本模块只负责定位资产、加载并提供查询帮助函数；SQLAgent 知识卡中的摘要应与
 该 JSON 保持同步。
 
-三大类沿用三调口径：农用地 / 建设用地 / 未利用地。JSON 中 uncertain=true 表示
-边界有争议、待业务确认的类型（正式映射下发后替换即可）。
+三大类沿用三调口径：农用地 / 建设用地 / 未利用地。JSON 的 code/name 以
+knowledge_base.dict_tblx 为正式清单；`review_status=pending_business` 表示分类边界
+仍需业务确认（不是“未实现”），确认后只改 JSON，不改代码。
 """
 
 from __future__ import annotations
@@ -61,6 +62,8 @@ def load_entries(asset_path: Optional[Path] = None) -> dict[str, dict[str, Any]]
             "name": item["name"],
             "category": item["category"],
             "uncertain": bool(item.get("uncertain", False)),
+            "review_status": str(item.get("review_status") or
+                                 ("pending_business" if item.get("uncertain") else "confirmed")),
         }
         entries[code] = info
         # 数据中 1-4 号地类存为前导零，同时收录不带前导零的写法。

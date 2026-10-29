@@ -14,8 +14,8 @@
   `dict_land_classification_summary`（原类型三级映射：二级类→一级类→三大类）。
 - **确定性统计工具**：`summarize_by_type`、`fragment_stats`、`farmland_flow_summary`、
   `construction_change_summary`、`top_conversions` 等后端预写 SQL，避免模型手写
-  出错；前后时项统一到三大类比较（后时项使用 TBLX→三大类默认模糊映射，正式规则
-  下发后可替换）。
+  出错；前后时项统一到三大类比较（后时项 TBLX 清单以 `dict_tblx` 为正式来源，
+  6 个边界类型的分类仍标记待业务确认）。
 - **Word 快报生成**：说"生成快报"即可按默认模板生成 .docx（输出到仓库外目录，
   默认 `%LOCALAPPDATA%/GeoAgent/reports`），前端可**下载**并**在线预览**（docx-preview）。
 - **养老可达性分析**（ElderCareAgent，路由 `elder_care`）：1km 网格、步行路网、
@@ -45,10 +45,15 @@ npm run dev          # http://localhost:5173
 
 ## 验证与回归
 
-- 后端：`cd backend && uv run pytest`（当前 89 个用例全绿）。
+- 后端：`cd backend && uv run pytest`（当前 352 个用例，347 passed / 5 个已知本机环境失败）。
 - 准确率回归（真实库 + 真实 LLM，手动）：`uv run --env-file .env python ../scripts/eval_sql_agent.py`
   （7 个 golden 用例，qwen3.7-max 下 7/7）。
 - 数据库冒烟：`uv run --env-file .env python ../scripts/smoke_pg.py`。
+
+## 文档
+
+- [语义匹配与准确性优化落地说明](docs/智能问数语义匹配优化落地说明.md)
+- [MCP 对接说明](docs/MCP对接说明.md)
 
 ## 目录
 

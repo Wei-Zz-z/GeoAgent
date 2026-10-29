@@ -372,7 +372,7 @@
       "intent": "原三调建设用地面积占全库面积的百分比",
       "strategy": "sql",
       "tool": "",
-      "sql": "SELECT sum(\"MJ\") AS jsyd_area_m2, (SELECT sum(\"MJ\") FROM {table}) AS total_area_m2 FROM {table} WHERE \"DLBM\" ~ '^(05|06|07|08|09|100[1-5]|100[7-9]|1109|1201)'",
+      "sql": "SELECT sum(\"MJ\") AS jsyd_area_m2, (SELECT sum(\"MJ\") FROM {table}) AS total_area_m2, round((sum(\"MJ\") * 100.0 / NULLIF((SELECT sum(\"MJ\") FROM {table}), 0))::numeric, 2) AS \"占比(%)\" FROM {table} WHERE \"DLBM\" ~ '^(05|06|07|08|09|100[1-5]|100[7-9]|1109|1201)'",
       "unit": "亩",
       "answer_hint": "百分比只引用查询结果列，禁止用手算"
     },

@@ -1,42 +1,240 @@
 {
   "name": "tblx-categories",
-  "version": "1",
-  "note": "TBLX（图斑类型/变化后）→ 三大类 临时推断映射（v1，待业务确认后替换）。uncertain=true 表示边界有争议的类型。",
+  "version": "2026-10-29",
+  "note": "TBLX 清单与名称以 knowledge_base.dict_tblx 为正式来源；三大类按三调口径归类，边界类型保留 pending_business，待业务确认后只改本资产。",
   "entries": [
-    {"code": "01", "name": "耕地", "category": "agricultural", "uncertain": false},
-    {"code": "02", "name": "园地", "category": "agricultural", "uncertain": false},
-    {"code": "03", "name": "林地", "category": "agricultural", "uncertain": false},
-    {"code": "04", "name": "草地", "category": "agricultural", "uncertain": false},
-    {"code": "ND", "name": "农村道路", "category": "agricultural", "uncertain": true},
-    {"code": "KT", "name": "坑塘", "category": "agricultural", "uncertain": false},
-    {"code": "SK", "name": "水库", "category": "agricultural", "uncertain": false},
-    {"code": "GQ", "name": "沟渠", "category": "agricultural", "uncertain": false},
-
-    {"code": "20", "name": "建/构筑物", "category": "construction", "uncertain": false},
-    {"code": "YH", "name": "硬化", "category": "construction", "uncertain": false},
-    {"code": "DT", "name": "动土", "category": "separate", "uncertain": false},
-    {"code": "TD", "name": "推堆土", "category": "separate", "uncertain": false},
-    {"code": "DL1", "name": "建成道路", "category": "construction", "uncertain": false},
-    {"code": "DL2", "name": "在建道路", "category": "construction", "uncertain": false},
-    {"code": "DL3", "name": "路网", "category": "construction", "uncertain": false},
-    {"code": "TL", "name": "铁路", "category": "construction", "uncertain": false},
-    {"code": "SJ", "name": "水工建筑", "category": "construction", "uncertain": false},
-    {"code": "CK", "name": "采矿", "category": "construction", "uncertain": false},
-    {"code": "YT", "name": "盐田", "category": "construction", "uncertain": true},
-    {"code": "WL", "name": "瓦砾", "category": "separate", "uncertain": false},
-    {"code": "TP", "name": "推平", "category": "separate", "uncertain": false},
-    {"code": "GF", "name": "光伏", "category": "construction", "uncertain": true},
-    {"code": "LD", "name": "公园绿地", "category": "construction", "uncertain": true},
-    {"code": "JC", "name": "机场", "category": "construction", "uncertain": false},
-    {"code": "ZQC", "name": "足球场", "category": "construction", "uncertain": false},
-    {"code": "GEF", "name": "高尔夫", "category": "construction", "uncertain": false},
-    {"code": "TH", "name": "填海项目", "category": "construction", "uncertain": true},
-
-    {"code": "SM", "name": "水面", "category": "unused", "uncertain": false},
-    {"code": "HL", "name": "河流", "category": "unused", "uncertain": false},
-    {"code": "LT", "name": "裸土地", "category": "unused", "uncertain": false},
-    {"code": "LY", "name": "裸岩石砾地", "category": "unused", "uncertain": false},
-    {"code": "WH", "name": "围海项目", "category": "unused", "uncertain": true},
-    {"code": "QT", "name": "其他", "category": "separate", "uncertain": false}
-  ]
+    {
+      "code": "01",
+      "name": "耕地",
+      "category": "agricultural",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "02",
+      "name": "园地",
+      "category": "agricultural",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "03",
+      "name": "林地",
+      "category": "agricultural",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "04",
+      "name": "草地",
+      "category": "agricultural",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "ND",
+      "name": "农村道路",
+      "category": "agricultural",
+      "uncertain": true,
+      "review_status": "pending_business"
+    },
+    {
+      "code": "KT",
+      "name": "坑塘",
+      "category": "agricultural",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "SK",
+      "name": "水库",
+      "category": "agricultural",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "GQ",
+      "name": "沟渠",
+      "category": "agricultural",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "20",
+      "name": "建/构筑物",
+      "category": "construction",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "YH",
+      "name": "硬化",
+      "category": "construction",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "DT",
+      "name": "动土",
+      "category": "separate",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "TD",
+      "name": "推堆土",
+      "category": "separate",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "DL1",
+      "name": "建成道路",
+      "category": "construction",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "DL2",
+      "name": "在建道路",
+      "category": "construction",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "DL3",
+      "name": "路网",
+      "category": "construction",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "TL",
+      "name": "铁路",
+      "category": "construction",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "SJ",
+      "name": "水工建筑",
+      "category": "construction",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "CK",
+      "name": "采矿",
+      "category": "construction",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "YT",
+      "name": "盐田",
+      "category": "construction",
+      "uncertain": true,
+      "review_status": "pending_business"
+    },
+    {
+      "code": "WL",
+      "name": "瓦砾",
+      "category": "separate",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "TP",
+      "name": "推平",
+      "category": "separate",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "GF",
+      "name": "光伏",
+      "category": "construction",
+      "uncertain": true,
+      "review_status": "pending_business"
+    },
+    {
+      "code": "LD",
+      "name": "公园绿地",
+      "category": "construction",
+      "uncertain": true,
+      "review_status": "pending_business"
+    },
+    {
+      "code": "JC",
+      "name": "机场",
+      "category": "construction",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "ZQC",
+      "name": "足球场",
+      "category": "construction",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "GEF",
+      "name": "高尔夫",
+      "category": "construction",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "TH",
+      "name": "填海项目",
+      "category": "construction",
+      "uncertain": true,
+      "review_status": "pending_business"
+    },
+    {
+      "code": "SM",
+      "name": "水面",
+      "category": "unused",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "HL",
+      "name": "河流",
+      "category": "unused",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "LT",
+      "name": "裸土地",
+      "category": "unused",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "LY",
+      "name": "裸岩石砾地",
+      "category": "unused",
+      "uncertain": false,
+      "review_status": "confirmed"
+    },
+    {
+      "code": "WH",
+      "name": "围海项目",
+      "category": "unused",
+      "uncertain": true,
+      "review_status": "pending_business"
+    },
+    {
+      "code": "QT",
+      "name": "其他",
+      "category": "separate",
+      "uncertain": false,
+      "review_status": "confirmed"
+    }
+  ],
+  "source": "knowledge_base.dict_tblx（2026-08-31 导入）",
+  "reviewed_at": "2026-10-29"
 }

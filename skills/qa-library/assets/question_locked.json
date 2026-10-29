@@ -1,0 +1,27 @@
+{
+  "name": "question-locked",
+  "version": "1.0",
+  "description": "锁定评估集：19 条全新问法，编写后不参与调参，只在最终效果评估时运行一次。",
+  "library": "question_library.json",
+  "groups": [
+    {"entry_id": "list_land_types", "variants": ["把地类的代码和名称列成表"]},
+    {"entry_id": "by_type_summary", "variants": ["各图斑类型分别有多少宗、面积多少"]},
+    {"entry_id": "orig_farmland", "variants": ["原地类属于耕地的图斑有多少"]},
+    {"entry_id": "max_polygon", "variants": ["单块面积最大的图斑在哪"]},
+    {"entry_id": "construction_top10", "variants": ["建设用地按面积取前十"]},
+    {"entry_id": "construction_ratio", "variants": ["建设用地占全部面积的比例"]},
+    {"entry_id": "orig_farmland_by_county", "variants": ["耕地面积分县统计"]},
+    {"entry_id": "fragment_stats", "variants": ["小于100平方米的图斑占比"]},
+    {"entry_id": "convert_area_units", "variants": ["平米转亩怎么算"]},
+    {"entry_id": "all_type_transition", "variants": ["地类流入流出净变化汇总"]},
+    {"entry_id": "top_conversions", "variants": ["按面积排转换类型"]},
+    {"entry_id": "construction_source_detail", "variants": ["新增建设用地的来源地类占比"]},
+    {"entry_id": "construction_change", "variants": ["新增建设用地分县面积统计"]},
+    {"entry_id": "redline_change", "variants": ["红线范围内的变化类型"]},
+    {"entry_id": "conversion_activity", "variants": ["地类变化活跃度排序"]},
+    {"entry_id": "farmland_to_forest", "variants": ["耕地变林地的面积"]},
+    {"entry_id": "ecology_to_industry", "variants": ["生态用地转产业用地规模"]},
+    {"entry_id": "total_vs_net_reconcile", "variants": ["总面积和净变化合计为何不等"]},
+    {"entry_id": "illegal_yongnong_construction", "variants": ["永农内疑似建设占用的图斑清单"]}
+  ]
+}

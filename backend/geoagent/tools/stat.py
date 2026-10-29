@@ -134,11 +134,10 @@ async def summarize_by_type(ctx: Any) -> ToolResult:
         content="\n".join(lines),
         artifacts=[
             _table(
-                ["图斑类型", "编码", "图斑数(个)", "面积(平方米)"],
+                ["图斑类型", "图斑数(个)", "面积(平方米)"],
                 [
                     {
                         "图斑类型": row["name"],
-                        "编码": row["code"],
                         "图斑数(个)": row["n"],
                         "面积(平方米)": round(float(row["area_m2"]), 2),
                     }
@@ -454,11 +453,11 @@ async def top_conversions(ctx: Any, top_n: int) -> ToolResult:
 def _summary_lines(rows: list[dict[str, Any]], total_n: Any, total_area: float) -> list[str]:
     lines = [
         f"全库合计：共 {total_n:,} 个图斑、总面积 {m2_to_mu(total_area):,.2f} 亩。",
-        f"共 {len(rows)} 种图斑类型（变化后/TBLX）：",
+        f"共 {len(rows)} 种图斑类型：",
     ]
     for row in rows[:50]:
         lines.append(
-            f"- {row['name']}({row['code']}): {row['n']:,} 个 / "
+            f"- {row['name']}：{row['n']:,} 个 / "
             f"{m2_to_mu(row['area_m2']):,.2f} 亩"
         )
     return lines

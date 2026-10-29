@@ -1,0 +1,28 @@
+{
+  "name": "geoagent-data-versions",
+  "current_version": "2026-10-29.1",
+  "updated_at": "2026-10-29",
+  "notes": [
+    "数据版本用于回答/审计中说明“这次答案基于哪一版数据与口径”，避免同一问题在不同时间无解释地变化。",
+    "修改 datasets.json、TBLX 映射、问题库、校准或字段字典时，追加一条 entries 并同步 current_version。",
+    "已验证期次（如 2026_3 抽稀验证）不进入生产问答与前端下拉框。"
+  ],
+  "entries": [
+    {
+      "version": "2026-10-29.1",
+      "date": "2026-10-29",
+      "datasets": ["2026_1", "2026_2"],
+      "disabled_datasets": ["2026_3"],
+      "tblx_mapping_version": "2026-10-29",
+      "question_library_version": "v1.2",
+      "calibration_version": "1.0",
+      "field_dictionary_version": "2026-10-29.1",
+      "changes": [
+        "2026_3 抽稀验证期次标记 enabled=false，仅保留在套合管理，不进入生产问答/下拉框。",
+        "TBLX 清单以 knowledge_base.dict_tblx 为正式来源；6 个边界类型标记 pending_business。",
+        "补充 TZ / QSX / CZCSXM 字段字典，未确认值保留原码。",
+        "回答反馈、claim-level 数字校验与多轮结构化状态抽取上线。"
+      ]
+    }
+  ]
+}

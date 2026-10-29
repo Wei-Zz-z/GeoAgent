@@ -214,14 +214,14 @@ npx @modelcontextprotocol/inspector   # 端点填 /mcp/，请求头带 Authoriza
 | --- | --- | --- | --- |
 | `turn_start` | 服务端→客户端 | `conversation_id` | 一轮对话开始 |
 | `route` | 服务端→客户端 | `target`, `reason` | 本轮使用的智能体（sql / elder_care / chat）；会话已选择智能体时 reason 为“会话选择的智能体”，不再调用路由模型 |
-| `standard_match` | 服务端→客户端 | `matched`, `mode`, `entry_id`, `confidence`, `reasons`, `candidates`, `dataset_id`, `dataset_label`, `table` | 标准问题指标预匹配结果；`matched=false` 表示本轮转自由 SQL 兜底 |
+| `standard_match` | 服务端→客户端 | `matched`, `mode`, `decision`, `entry_id`, `score`, `confidence`, `p_correct`, `calibrated`, `margin`, `risk`, `threshold`, `p_threshold`, `vector_used`, `vector_entries`, `judge_used`, `judge_entry`, `judge_confidence`, `judge_reason`, `resolved_question`, `data_version`, `reasons`, `slots`, `slot_labels`, `candidates`, `candidate_details`, `caliber`, `dataset_id`, `dataset_label`, `table` | 语义预匹配结果；`decision=execute` 才确定性执行，`candidates/clarify` 不查库，`fallback` 转自由 SQL；`confidence` 为校准后的 p(correct)；`resolved_question` 为多轮补全后的问题 |
 | `token` | 服务端→客户端 | `delta` | 流式增量文本 |
 | `tool_call` | 服务端→客户端 | `id`, `name`, `arguments` | 正在调用工具 |
 | `tool_result` | 服务端→客户端 | `id`, `name`, `is_error`, `content` | 工具执行结果（摘要文本） |
 | `artifact` | 服务端→客户端 | `kind`, `name`, `data` | 可视化产物（geojson / table / chart / file 等）；geojson 可带 `data.style`，预警图斑为红色描边 + 半透明红填充 |
 | `subagent_start` | 服务端→客户端 | `id`, `prompt` | 子 Agent 开始运行（task） |
 | `subagent_end` | 服务端→客户端 | `id`, `is_error`, `content` | 子 Agent 结束并返回最终文本 |
-| `message` | 服务端→客户端 | `role`, `content`, `model` | 最终助手消息 |
+| `message` | 服务端→客户端 | `role`, `content`, `model`, `number_guard`, `query_state` | 最终助手消息；`number_guard` 为自由 SQL 数字溯源，`query_state` 供下一轮追问继承 |
 | `error` | 服务端→客户端 | `message` | 错误信息 |
 | `turn_end` | 服务端→客户端 | `conversation_id` | 一轮对话结束 |
 | `user` | 客户端→服务端 | `content`, `agent`, `dataset_id` | 用户发送消息；`agent` 指定本轮智能体（不传走 RouterNode 兜底），`dataset_id` 指定期次表 |
@@ -343,7 +343,8 @@ SQL 中需按 `describe_table` 返回的原文加双引号，否则 PostgreSQL �
 - 图斑类型（变化后） = `"TBLX"`（影像地类体系，33 类；数据中 1-4 前导零为 01-04）
 - 面积 `"MJ"` 库内单位为平方米；对用户展示统一换算为亩（1 平方米 = 0.0015 亩，见 `tools/units.py`）
 - 无修饰的"地类/耕地/建设用地"默认按原土地类型统计；"图斑类型/变化后"按 `TBLX`
-- TBLX→三大类：默认模糊映射模板（`skills/land-report/assets/tblx_categories.json`），
+- TBLX→三大类：字典驱动映射（`skills/land-report/assets/tblx_categories.json`），
+  清单以 `knowledge_base.dict_tblx` 为正式来源，6 个边界类型标记 pending_business；
   用户提供正式规则后替换
 
 展示映射：`run_sql` 返回表格的表头与 `TBLX` 值自动映射为中文、面积列换算为亩
@@ -376,7 +377,11 @@ GEOAGENT_PG_DSN=postgresql://user:pass@192.168.3.209:5432/zhejiang_agent_project
 GEOAGENT_PG_WHITELIST=data."2026_1_change_landuse",data."2026_2_change_landuse",knowledge_base.dict_tblx,knowledge_base.dict_land_classification_summary
 # datasets.json 中登记的全部期次表会自动并入白名单（显式配置时也会并入）
 GEOAGENT_QA_PREMATCH=execute
-GEOAGENT_QA_PREMATCH_CONFIDENCE=0.5
+GEOAGENT_QA_PREMATCH_CONFIDENCE=0.42
+# 向量召回 + RRF（0=纯规则；无 OPENAI_API_KEY 时自动降级）
+GEOAGENT_QA_VECTOR=1
+# 灰度区（candidates/clarify）是否调用 LLM judge 复核候选
+GEOAGENT_QA_JUDGE=1
 ```
 
 准确率评估（手动运行，真实库 + 真实 LLM）：
@@ -417,16 +422,43 @@ backend/.venv/Scripts/python.exe scripts/scrub_conversation_leaks.py --apply  # 
 
 1. **解析期次**：前端传 `dataset_id` → 问题文本里识别（别名 / "2026年第二期" 之类）→ 默认期次；
    问题里提到的期次若未登记，直接说明并停止，不用默认期次顶替；
-2. **指标匹配**：`report/question_library.py` 的可解释规则匹配（标准问法 / 别名 / 关键词 /
-   字符重合度，带"违法""平均""前后时项"等口径否决），低于 `GEOAGENT_QA_PREMATCH_CONFIDENCE`
-   视为未命中；
-3. **确定性执行**：命中且 `execute` 模式时，按条目的 `strategy` 调确定性工具或执行参考 SQL，
-   正文由结果生成，数字与口径不经过模型，并标注标准问题编号、口径与期次；
-4. **自由 SQL 兜底**：未命中、执行失败或 `hint` 模式时，进入 SQLAgent 的 LLM 工具循环，
-   命中信息作为提示注入（`hint`），自由 SQL 引用非当前期次的已登记表会附加提示。
+2. **语义匹配**：`qa_semantics.py` 先做查询理解（主体 / 前后时项 / 聚合 / 维度 / 限定 /
+   转换方向），再召回标准问题并做槽位重排；字面分只作为特征之一。默认再叠加
+   `qa_library.vector_scores_many` 的 embedding 余弦相似度，与词法排名做 RRF（只做有界加分），
+   无 API Key/调用失败时自动回退纯规则。`confidence` 是离线逻辑回归校准后的
+   `p(correct)`，`score` 是原始匹配分；p < 0.60 时不自动执行。输出
+   `decision=execute|candidates|clarify|fallback`，中/高风险口径（占比、流向、永农、红线）
+   由 `terms.json` 抬高自动执行门槛；
+3. **确定性执行**：`execute` 时按条目的 `strategy` 调确定性工具或执行参考 SQL，
+   正文由结果生成，数字与口径不经过模型，并附口径卡（主体/范围/期次/单位/风险）；
+   正文不使用 Markdown `#` 标题，图斑类型不附字段编码，期次不展示内部表名；
+4. **结果校验**：`qa_verify.py` 校验空结果、负值、比例范围、净变化=流入-流出、
+   按类型分项合计、区县筛选；校验失败会在正文显著标注，不把可疑数字当结论；
+5. **候选/澄清**：`candidates` 给 2~3 个最接近的标准问题让用户选；`clarify` 只问一个
+   关键口径问题（含对抗/编造要求），两者都不查库；灰度区可再调用一次 LLM judge 复核
+   Top-3（`GEOAGENT_QA_JUDGE=1`），judge 不直接执行，只维持候选/澄清；
+6. **自由 SQL 兜底**：未命中、执行失败或 `hint` 模式时，进入 SQLAgent 的 LLM 工具循环，
+   并把识别到的槽位与候选条目作为“理解计划”注入提示词，不再是静默降级；
+7. **自由 SQL 数字溯源**：`number_guard.py` 把最终正文中的数字与本轮 `tool` 消息的
+   `content`/`artifact` 逐条对照；可机械修正的单位错误直接修正，不能修正的用证据重写一次，
+   仍失败则阻断正文只保留表格；`message` 事件带 `number_guard` 的
+   `corrections/rewrite_attempted/blocked`；
+8. **多轮追问**：`dialogue.py` 在预匹配前补全 `那第二期呢`、`这个县呢`、`再按类型分`、
+   `那林地呢`；`query_state` 随最终消息持久化，换 REST/WS 连接后仍能继承上一轮问题。
 
-事件上新增 `standard_match`（命中与否、条目、置信度、期次、表名），工具卡片仍沿用
-`tool_call` / `tool_result` / `artifact`，因此前端无需改动即可展示。
+语义层资产（业务可编辑，位于 `skills/qa-library/assets/`）：
+
+- `terms.json`：主体/过滤/聚合/维度/时项/转换方向/风险规则/决策阈值；
+- `metric_cards.json`：42 条标准问题的指标卡（由 `scripts/build_metric_cards.py` 生成）；
+- `match_calibration.json`：top-1 p(correct) 校准参数（由 `scripts/fit_match_calibration.py` 拟合）；
+- `field_dictionaries.json`：TZ / QSX / CZCSXM 业务字典（未确认值保留原码）；
+- `data_versions.json`：数据/口径/映射版本与变更记录；
+- `question_holdout.json` / `question_locked.json`：独立留出与锁定评估问法。
+
+事件上 `standard_match` 会带出 `decision`、`score`、`p_correct`、`calibrated`、`margin`、
+`risk`、`slots`、`slot_labels`、`caliber`、`candidate_details`、`resolved_question`；
+`message` 事件可带 `caliber`、`verification`、`number_guard`、`query_state`。工具卡片仍沿用
+`tool_call` / `tool_result` / `artifact`，前端不改也能展示。
 
 ## 土地变化监测快报（land-report）
 
@@ -441,7 +473,8 @@ backend/.venv/Scripts/python.exe scripts/scrub_conversation_leaks.py --apply  # 
 `frontend/src/toolLabels.js`），工具描述、技能说明与 SQLAgent/路由提示词均为中文。
 
 - 口径与 SQLAgent 知识卡一致：原土地类型 = DLBM/DLMC，图斑类型 = TBLX；
-  TBLX→三大类使用临时映射 `geoagent/tools/categories.py`（正式映射下发后替换）
+  TBLX→三大类使用 `geoagent/tools/categories.py` 加载字典资产（清单以 dict_tblx 为准，
+  边界项待业务确认）；
 - 面积库内为平方米、展示统一按亩换算（`tools/units.py`）
 - 统计期次跟随会话上方“数据表”选择框（`tools/report.py` 用 `context_table(ctx)` 取表），
   标题监测期行、正文与输出文件名都标注所选期次

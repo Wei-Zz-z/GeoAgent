@@ -1,0 +1,65 @@
+{
+  "name": "question-holdout",
+  "version": "1.0",
+  "description": "独立留出问法：用于评估“未见问法”的语义匹配，不参与问题库别名扩充。每组两条，split=dev 用于开发期观察，split=locked 作为锁定回归样本。",
+  "library": "question_library.json",
+  "groups": [
+    {"entry_id": "list_land_types", "variants": [
+      {"text": "把地类名称和编码做个对照", "split": "dev"},
+      {"text": "系统里登记了哪些地类，编码分别是什么", "split": "locked"}]},
+    {"entry_id": "by_type_summary", "variants": [
+      {"text": "按图斑类型分组，算一下各组的数量和面积", "split": "dev"},
+      {"text": "不同类型的变化图斑各有多少、面积合计多少", "split": "locked"}]},
+    {"entry_id": "orig_farmland", "variants": [
+      {"text": "统计原地类为耕地的图斑规模", "split": "dev"},
+      {"text": "耕地图斑总共有多少，面积合计多少", "split": "locked"}]},
+    {"entry_id": "max_polygon", "variants": [
+      {"text": "面积排第一的图斑是哪个，位于哪个县", "split": "dev"},
+      {"text": "找一块面积最大的变化图斑看看属性", "split": "locked"}]},
+    {"entry_id": "construction_top10", "variants": [
+      {"text": "按面积降序列出建设用地最大的十条", "split": "dev"},
+      {"text": "建设用地面积排名前十的记录给我", "split": "locked"}]},
+    {"entry_id": "construction_ratio", "variants": [
+      {"text": "建设用地面积占总体面积的比例是多少", "split": "dev"},
+      {"text": "全库里建设用地能占百分之几", "split": "locked"}]},
+    {"entry_id": "orig_farmland_by_county", "variants": [
+      {"text": "分县汇总耕地面积", "split": "dev"},
+      {"text": "每个县的耕地面积分别是多少", "split": "locked"}]},
+    {"entry_id": "fragment_stats", "variants": [
+      {"text": "面积不到100平方米的零碎图斑占比多少", "split": "dev"},
+      {"text": "统计小于100平米的细碎图斑数量", "split": "locked"}]},
+    {"entry_id": "convert_area_units", "variants": [
+      {"text": "把平方米换算成亩", "split": "dev"},
+      {"text": "公顷和亩之间怎么换算", "split": "locked"}]},
+    {"entry_id": "all_type_transition", "variants": [
+      {"text": "各地类的流入、流出和净变化分别是多少", "split": "dev"},
+      {"text": "做一张地类转入转出的统计", "split": "locked"}]},
+    {"entry_id": "top_conversions", "variants": [
+      {"text": "转换面积排名前几的类型有哪些", "split": "dev"},
+      {"text": "哪种地类转换涉及的面积最多", "split": "locked"}]},
+    {"entry_id": "construction_source_detail", "variants": [
+      {"text": "新增建设用地的来源都有哪些，占比多少", "split": "dev"},
+      {"text": "建设用地主要占用了哪些地类", "split": "locked"}]},
+    {"entry_id": "construction_change", "variants": [
+      {"text": "分县统计新增建设用地的面积", "split": "dev"},
+      {"text": "各县新增建设用地规模有多大", "split": "locked"}]},
+    {"entry_id": "redline_change", "variants": [
+      {"text": "生态红线范围内变化成什么类型了", "split": "dev"},
+      {"text": "红线内有没有建设行为", "split": "locked"}]},
+    {"entry_id": "conversion_activity", "variants": [
+      {"text": "哪个地类变动最活跃", "split": "dev"},
+      {"text": "按变化面积占比看哪个类型最不稳定", "split": "locked"}]},
+    {"entry_id": "farmland_to_forest", "variants": [
+      {"text": "退耕还林实际完成了多少面积", "split": "dev"},
+      {"text": "有多少耕地变成了林地", "split": "locked"}]},
+    {"entry_id": "ecology_to_industry", "variants": [
+      {"text": "两山转化涉及的生态用地规模", "split": "dev"},
+      {"text": "生态用地转为产业用地的面积", "split": "locked"}]},
+    {"entry_id": "total_vs_net_reconcile", "variants": [
+      {"text": "总面积和净变化合计为什么不一致", "split": "dev"},
+      {"text": "净变化相加为什么对不上总面积", "split": "locked"}]},
+    {"entry_id": "illegal_yongnong_construction", "variants": [
+      {"text": "永久基本农田里疑似建设占用的图斑有多少", "split": "dev"},
+      {"text": "永农范围内被建设占用的面积和分布", "split": "locked"}]}
+  ]
+}

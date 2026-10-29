@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .field_dictionaries import label_for
 from .units import area_header, is_area_column, m2_to_mu
 
 
@@ -160,6 +161,8 @@ def humanize_table(
             value = row.get(col)
             if col == "TBLX" and value is not None:
                 value = TBLX_LABELS.get(str(value), value)
+            elif str(col).upper() in {"TZ", "CZCSXM", "QSX"}:
+                value = label_for(str(col), value) or value
             elif is_area_column(col):
                 value = m2_to_mu(value)
             new_row[label] = value

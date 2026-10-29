@@ -49,6 +49,8 @@ class Agent(Node):
     async def exec(self, ctx: Any, payload: Any) -> tuple[str, Any]:
         user_text = str(payload)
         ctx.session.add_user(user_text)
+        ctx.answer_metadata = {}
+        ctx.turn_tool_messages = []
 
         model = self.model or ctx.model
         tool_schemas = [t.to_llm_format() for t in self.tools] or None
@@ -148,10 +150,15 @@ class Agent(Node):
 
             # 出口兜底：正文不列内部下载链接（文件走卡片预览/下载）
             final.content = scrub_internal_links(final.content or "")
+            # 子类可做最终回答校验/改写（例如 SQLAgent 的数字溯源）。
+            final = await self.finalize_answer(ctx, final)
             final_dict = final.to_dict()
             final_dict["route"] = getattr(ctx, "route", "") or ""
             if getattr(ctx, "answer_origin", ""):
                 final_dict["answer_origin"] = ctx.answer_origin
+            metadata = getattr(ctx, "answer_metadata", None)
+            if metadata:
+                final_dict.update(metadata)
             subagents = getattr(ctx, "subagents", None)
             if subagents:
                 final_dict["subagents"] = list(subagents)
@@ -174,7 +181,9 @@ class Agent(Node):
                     )
                 )
                 result = await self.executor.execute(tc, ctx=ctx)
-                ctx.session.add_tool(result.to_message())
+                tool_message = result.to_message()
+                ctx.session.add_tool(tool_message)
+                ctx.turn_tool_messages.append(tool_message)
                 await ctx.emit(
                     Event(
                         "tool_result",
@@ -211,7 +220,12 @@ class Agent(Node):
                     "route": getattr(ctx, "route", "") or "",
                     "answer_origin": getattr(ctx, "answer_origin", "") or "",
                     "subagents": list(getattr(ctx, "subagents", []) or []),
+                    **dict(getattr(ctx, "answer_metadata", {}) or {}),
                 },
             )
         )
         return "default", final
+
+    async def finalize_answer(self, ctx: Any, final: AssistantMessage) -> AssistantMessage:
+        """最终回答出口钩子；默认原样返回，SQLAgent 用它做数字溯源。"""
+        return final

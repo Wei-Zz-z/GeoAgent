@@ -1,0 +1,885 @@
+{
+  "name": "geoagent-metric-cards",
+  "version": "1.0",
+  "description": "标准问题指标卡：主体/过滤/聚合/维度/前后时项/风险。由 scripts/build_metric_cards.py 生成，可手工修订。",
+  "source": "question_library.json + terms.json",
+  "cards": {
+    "total_summary": {
+      "question": "全库共有多少个变化图斑、总面积是多少",
+      "intent": "全库图斑总数与总面积",
+      "risk": "low",
+      "subjects": [
+        "patch",
+        "total"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count"
+      ],
+      "dims": [],
+      "side": "",
+      "transition": null
+    },
+    "by_type_summary": {
+      "question": "计算每种图斑类型的图斑数量和总面积",
+      "intent": "按图斑类型（变化后 TBLX）汇总数量与面积",
+      "risk": "low",
+      "subjects": [
+        "patch",
+        "patch_type"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count"
+      ],
+      "dims": [
+        "type"
+      ],
+      "side": "after",
+      "transition": null
+    },
+    "orig_farmland": {
+      "question": "筛选出所有耕地图斑，统计其图斑数量和总面积",
+      "intent": "变化前为耕地（原土地类型 DLBM 01%）的数量与面积",
+      "risk": "low",
+      "subjects": [
+        "farmland",
+        "land_class",
+        "patch"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count",
+        "map"
+      ],
+      "dims": [],
+      "side": "before",
+      "transition": null
+    },
+    "current_farmland": {
+      "question": "统计变化后为耕地的图斑数量和总面积",
+      "intent": "变化后为耕地（图斑类型 TBLX 01/1）的数量与面积",
+      "risk": "low",
+      "subjects": [
+        "farmland",
+        "patch",
+        "patch_type"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count",
+        "map"
+      ],
+      "dims": [],
+      "side": "after",
+      "transition": null
+    },
+    "farmland_flow": {
+      "question": "耕地流出、流入与净变化是多少，流向哪里、从哪里来",
+      "intent": "耕地前后流向确定性汇总（流出/流入/净变化 + 方向与来源构成）",
+      "risk": "medium",
+      "subjects": [
+        "farmland"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count",
+        "flow",
+        "source",
+        "structure",
+        "target"
+      ],
+      "dims": [],
+      "side": "flow",
+      "transition": null
+    },
+    "farmland_to_construction": {
+      "question": "原耕地流向建设用地的面积是多少",
+      "intent": "原耕地(DLBM 01%) 且变化后为建设用地(TBLX∈建设模糊集) 的数量与面积",
+      "risk": "medium",
+      "subjects": [
+        "construction",
+        "farmland",
+        "land_class",
+        "patch_type",
+        "transition"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count"
+      ],
+      "dims": [],
+      "side": "after",
+      "transition": [
+        "farmland",
+        "construction"
+      ]
+    },
+    "construction_change": {
+      "question": "新增建设用地有多少，来自哪里、分布在哪些县",
+      "intent": "新增建设用地（后时项 TBLX 模糊映射）汇总/分县/来源构成",
+      "risk": "low",
+      "subjects": [
+        "construction"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count",
+        "distribution",
+        "source",
+        "structure"
+      ],
+      "dims": [
+        "county"
+      ],
+      "side": "after",
+      "transition": null
+    },
+    "fragment_stats": {
+      "question": "面积小于某阈值的细碎图斑有多少、占比多大",
+      "intent": "面积(MJ)小于阈值的图斑数量与占全库数量/面积的比例",
+      "risk": "medium",
+      "subjects": [
+        "patch"
+      ],
+      "filters": [
+        "fragment"
+      ],
+      "aggs": [
+        "area",
+        "count",
+        "ratio"
+      ],
+      "dims": [],
+      "side": "",
+      "transition": null
+    },
+    "top_conversions": {
+      "question": "变化面积最大的转换类型有哪些（如耕地→建设用地）",
+      "intent": "原一级类→现三大类（模糊映射）转换面积 Top-N",
+      "risk": "medium",
+      "subjects": [
+        "transition"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count",
+        "list",
+        "max",
+        "top"
+      ],
+      "dims": [
+        "county_rank",
+        "type"
+      ],
+      "side": "after",
+      "transition": null
+    },
+    "max_polygon": {
+      "question": "找出面积最大的单个图斑，说明其图斑类型和所在行政区",
+      "intent": "按面积排序取单个最大图斑的明细",
+      "risk": "low",
+      "subjects": [
+        "patch",
+        "patch_type"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "max",
+        "top"
+      ],
+      "dims": [
+        "county"
+      ],
+      "side": "",
+      "transition": null
+    },
+    "construction_top10": {
+      "question": "按面积从大到小排序所有建设用地图斑，显示前 10 条",
+      "intent": "原三调建设用地图斑按面积 Top-10 明细",
+      "risk": "medium",
+      "subjects": [
+        "construction",
+        "patch"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "map",
+        "top"
+      ],
+      "dims": [
+        "county_rank"
+      ],
+      "side": "before",
+      "transition": null
+    },
+    "construction_ratio": {
+      "question": "计算建设用地占总面积的百分比",
+      "intent": "原三调建设用地面积占全库面积的百分比",
+      "risk": "medium",
+      "subjects": [
+        "construction",
+        "total"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "ratio"
+      ],
+      "dims": [],
+      "side": "before",
+      "transition": null
+    },
+    "by_county": {
+      "question": "分区县统计变化图斑数量和总面积",
+      "intent": "按县级行政区(XMC)汇总图斑数量与面积",
+      "risk": "low",
+      "subjects": [
+        "patch"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count"
+      ],
+      "dims": [
+        "county"
+      ],
+      "side": "",
+      "transition": null
+    },
+    "list_land_types": {
+      "question": "列出所有地类名称和对应的地类编码",
+      "intent": "查询合并地类字典的原二级类编码/名称清单",
+      "risk": "low",
+      "subjects": [
+        "land_class"
+      ],
+      "filters": [],
+      "aggs": [
+        "list"
+      ],
+      "dims": [],
+      "side": "",
+      "transition": null
+    },
+    "list_tblx_types": {
+      "question": "列出所有图斑类型（TBLX）的名称和编码",
+      "intent": "查询图斑类型字典(TBLX 编码→名称)清单",
+      "risk": "low",
+      "subjects": [
+        "patch",
+        "patch_type"
+      ],
+      "filters": [],
+      "aggs": [
+        "list"
+      ],
+      "dims": [],
+      "side": "",
+      "transition": null
+    },
+    "convert_area_units": {
+      "question": "将面积单位从平方米换算为公顷和亩（或反过来）",
+      "intent": "面积单位换算（平方米↔公顷↔亩）",
+      "risk": "low",
+      "subjects": [
+        "unit"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "list"
+      ],
+      "dims": [],
+      "side": "",
+      "transition": null
+    },
+    "orig_farmland_by_county": {
+      "question": "统计每个行政区的耕地总面积",
+      "intent": "按县级行政区(XMC)汇总耕地（原 DLBM 01%）面积（数据仅到县级，无乡镇字段）",
+      "risk": "low",
+      "subjects": [
+        "farmland"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count"
+      ],
+      "dims": [
+        "county"
+      ],
+      "side": "before",
+      "transition": null
+    },
+    "all_type_transition": {
+      "question": "计算每种地类的总流出面积、总流入面积和净变化面积",
+      "intent": "全地类（三大类层面）流出/流入/净变化转移矩阵",
+      "risk": "medium",
+      "subjects": [
+        "land_class",
+        "transition"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count",
+        "flow"
+      ],
+      "dims": [
+        "land_class"
+      ],
+      "side": "flow",
+      "transition": null
+    },
+    "construction_source_detail": {
+      "question": "计算建设用地的来源构成（分别来自哪些地类，各占多少比例）",
+      "intent": "新增建设用地（后时项 TBLX）的来源（原一级类）构成与占比",
+      "risk": "medium",
+      "subjects": [
+        "construction",
+        "land_class",
+        "patch_type"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count",
+        "list",
+        "ratio",
+        "source",
+        "structure"
+      ],
+      "dims": [
+        "land_class"
+      ],
+      "side": "after",
+      "transition": null
+    },
+    "farmland_inflow_source": {
+      "question": "耕地流入分别来源于哪些地类，各是多少（园地、林地、建设用地、坑塘水面等）",
+      "intent": "现耕地（变化后为耕地）的原地类来源构成（按一级类细分）",
+      "risk": "medium",
+      "subjects": [
+        "construction",
+        "farmland",
+        "forest",
+        "garden",
+        "land_class",
+        "water"
+      ],
+      "filters": [],
+      "aggs": [
+        "count",
+        "flow",
+        "list",
+        "source",
+        "structure"
+      ],
+      "dims": [
+        "land_class"
+      ],
+      "side": "flow",
+      "transition": null
+    },
+    "farmland_inflow_from_construction": {
+      "question": "耕地流入中来源于建设用地的面积是多少",
+      "intent": "现耕地(TBLX 01/1)且原为建设用地(三调建设 regex)的面积",
+      "risk": "medium",
+      "subjects": [
+        "construction",
+        "farmland",
+        "land_class",
+        "patch_type",
+        "transition"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count",
+        "flow",
+        "source"
+      ],
+      "dims": [],
+      "side": "after",
+      "transition": [
+        "construction",
+        "farmland"
+      ]
+    },
+    "farmland_inflow_recoverable": {
+      "question": "由恢复性地类（种植园地、林地、坑塘等）流入耕地的面积是多少",
+      "intent": "现耕地(TBLX 01/1)且原为恢复性地类(园地/林地/坑塘水面)的面积",
+      "risk": "medium",
+      "subjects": [
+        "farmland",
+        "forest",
+        "garden",
+        "land_class",
+        "patch_type",
+        "water"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count",
+        "flow"
+      ],
+      "dims": [],
+      "side": "after",
+      "transition": null
+    },
+    "farmland_net_change_county": {
+      "question": "分县统计耕地流出、流入与净变化，找出净减少最多（或净增加最多）的县",
+      "intent": "按县级行政区(XMC)汇总耕地流出/流入/净变化并按净变化排序",
+      "risk": "medium",
+      "subjects": [
+        "farmland"
+      ],
+      "filters": [],
+      "aggs": [
+        "flow",
+        "top"
+      ],
+      "dims": [
+        "county",
+        "county_rank"
+      ],
+      "side": "after",
+      "transition": null
+    },
+    "forest_flow": {
+      "question": "林地流出、流入与净变化是多少，流向哪里、从哪里来",
+      "intent": "林地（原 DLBM 03% / 现 TBLX 03）前后流向汇总（流出/流入/净变化）",
+      "risk": "medium",
+      "subjects": [
+        "forest",
+        "patch_type"
+      ],
+      "filters": [],
+      "aggs": [
+        "flow",
+        "source",
+        "target"
+      ],
+      "dims": [],
+      "side": "flow",
+      "transition": null
+    },
+    "grassland_flow": {
+      "question": "草地流出、流入与净变化是多少",
+      "intent": "草地（原 DLBM 04% / 现 TBLX 04）前后流向汇总",
+      "risk": "medium",
+      "subjects": [
+        "grassland",
+        "patch_type"
+      ],
+      "filters": [],
+      "aggs": [
+        "flow"
+      ],
+      "dims": [],
+      "side": "flow",
+      "transition": null
+    },
+    "farmland_in_yongnong": {
+      "question": "永久基本农田（永农）范围内耕地流入、流出与净变化是多少",
+      "intent": "涉及永久基本农田（SFYN=是）图斑的耕地流入/流出/净变化",
+      "risk": "high",
+      "subjects": [
+        "farmland",
+        "patch",
+        "yongnong"
+      ],
+      "filters": [
+        "yongnong"
+      ],
+      "aggs": [
+        "flow"
+      ],
+      "dims": [],
+      "side": "flow",
+      "transition": null
+    },
+    "farmland_outflow_detail": {
+      "question": "耕地流出分别流向哪些地类，各是多少",
+      "intent": "耕地（原 DLBM 01%）流出后变化为的图斑类型明细（按 TBLX 中文名）",
+      "risk": "medium",
+      "subjects": [
+        "farmland",
+        "land_class",
+        "patch",
+        "patch_type"
+      ],
+      "filters": [],
+      "aggs": [
+        "count",
+        "flow",
+        "list",
+        "structure",
+        "target"
+      ],
+      "dims": [
+        "land_class"
+      ],
+      "side": "flow",
+      "transition": null
+    },
+    "forest_outflow_detail": {
+      "question": "林地流出分别流向哪些地类，各是多少",
+      "intent": "林地（原 DLBM 03%）流出后变化为的图斑类型明细",
+      "risk": "medium",
+      "subjects": [
+        "forest",
+        "land_class",
+        "patch",
+        "patch_type"
+      ],
+      "filters": [],
+      "aggs": [
+        "count",
+        "flow",
+        "list",
+        "structure",
+        "target"
+      ],
+      "dims": [
+        "land_class"
+      ],
+      "side": "flow",
+      "transition": null
+    },
+    "construction_structure": {
+      "question": "新增建设用地的结构构成是怎样的（按建设用地性质分类）",
+      "intent": "新增建设用地（TBLX∈建设集）按建设用地性质(JSYDXZ)的结构构成",
+      "risk": "low",
+      "subjects": [
+        "construction",
+        "patch_type"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count",
+        "structure"
+      ],
+      "dims": [
+        "type"
+      ],
+      "side": "after",
+      "transition": null
+    },
+    "adjustable_to_construction": {
+      "question": "可调整地类流向建设用地的面积是多少",
+      "intent": "种植属性为'即可恢复/工程恢复'的图斑流向建设用地（TBLX∈建设集）的数量与面积",
+      "risk": "low",
+      "subjects": [
+        "adjustable",
+        "construction",
+        "land_class",
+        "patch",
+        "patch_type",
+        "planting"
+      ],
+      "filters": [
+        "adjustable",
+        "planting"
+      ],
+      "aggs": [
+        "area",
+        "count"
+      ],
+      "dims": [],
+      "side": "after",
+      "transition": null
+    },
+    "farmland_planting_attr": {
+      "question": "耕地的种植属性构成是怎样的（粮食/非粮/轮作/未耕种等），非粮化面积多少",
+      "intent": "耕地（原 DLBM 01%）按种植属性(ZZSXMC)分类统计，识别'非粮化'规模",
+      "risk": "low",
+      "subjects": [
+        "farmland",
+        "planting"
+      ],
+      "filters": [
+        "planting"
+      ],
+      "aggs": [
+        "area",
+        "count",
+        "structure"
+      ],
+      "dims": [
+        "type"
+      ],
+      "side": "before",
+      "transition": null
+    },
+    "redline_change": {
+      "question": "生态保护红线范围内的地类变化情况如何，是否存在疑似转为建设用地",
+      "intent": "涉及生态保护红线（SFHX=是）图斑的类型构成，并识别疑似建设",
+      "risk": "high",
+      "subjects": [
+        "construction",
+        "land_class",
+        "patch",
+        "patch_type",
+        "redline",
+        "transition"
+      ],
+      "filters": [
+        "redline"
+      ],
+      "aggs": [
+        "count",
+        "list",
+        "structure"
+      ],
+      "dims": [],
+      "side": "",
+      "transition": null
+    },
+    "illegal_yongnong_construction": {
+      "question": "永久基本农田范围内疑似转为建设用地的图斑有多少、面积多大",
+      "intent": "涉及永农(SFYN=是)且现为建设用地/疑似建设(TBLX∈建设集)的图斑数量与面积",
+      "risk": "high",
+      "subjects": [
+        "construction",
+        "yongnong"
+      ],
+      "filters": [
+        "yongnong"
+      ],
+      "aggs": [
+        "area",
+        "count",
+        "map"
+      ],
+      "dims": [
+        "county"
+      ],
+      "side": "after",
+      "transition": [
+        "farmland",
+        "construction"
+      ]
+    },
+    "forest_to_farmland": {
+      "question": "林地转为耕地的图斑有多少、面积多大，分布在哪些县",
+      "intent": "原林地(DLBM 03%)且现耕地(TBLX 01)的图斑数量与面积",
+      "risk": "medium",
+      "subjects": [
+        "farmland",
+        "forest",
+        "land_class",
+        "patch",
+        "patch_type",
+        "transition"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count",
+        "distribution"
+      ],
+      "dims": [
+        "county"
+      ],
+      "side": "transition",
+      "transition": [
+        "forest",
+        "farmland"
+      ]
+    },
+    "by_feature_tz": {
+      "question": "按图斑特征(TZ)统计各特征的图斑数量和面积",
+      "intent": "按图斑特征(TZ)汇总数量与面积",
+      "risk": "low",
+      "subjects": [
+        "feature",
+        "patch"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count"
+      ],
+      "dims": [
+        "feature",
+        "type"
+      ],
+      "side": "",
+      "transition": null
+    },
+    "by_timephase": {
+      "question": "按前时相、后时相统计各时段的变化图斑数量和面积",
+      "intent": "按前时相(QSX)/后时相(HSX)组合统计变化图斑数量与面积",
+      "risk": "low",
+      "subjects": [
+        "patch",
+        "timephase"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count"
+      ],
+      "dims": [],
+      "side": "after",
+      "transition": null
+    },
+    "by_czcs": {
+      "question": "按城镇村属性(城镇/村庄等)统计变化图斑的数量和面积",
+      "intent": "按城镇村属性码(CZCSXM)汇总数量与面积",
+      "risk": "low",
+      "subjects": [
+        "czcs",
+        "patch"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count"
+      ],
+      "dims": [
+        "czcs",
+        "type"
+      ],
+      "side": "",
+      "transition": null
+    },
+    "conversion_activity": {
+      "question": "计算每个地类的转换活跃度，哪个地类最不稳定",
+      "intent": "按变化后图斑类型(TBLX)计算变化面积与图斑数占全库比重，衡量转换活跃度",
+      "risk": "medium",
+      "subjects": [
+        "activity",
+        "land_class",
+        "patch",
+        "patch_type",
+        "total",
+        "transition"
+      ],
+      "filters": [],
+      "aggs": [
+        "activity",
+        "area",
+        "count",
+        "list",
+        "ratio"
+      ],
+      "dims": [
+        "type"
+      ],
+      "side": "after",
+      "transition": null
+    },
+    "farmland_to_forest": {
+      "question": "退耕还林：耕地转为林地的图斑数量和面积是多少",
+      "intent": "原耕地(DLBM 01%)变化后为林地(TBLX 03/3)的数量与面积，即退耕还林实际规模",
+      "risk": "medium",
+      "subjects": [
+        "farmland",
+        "forest",
+        "land_class",
+        "patch",
+        "patch_type",
+        "transition"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "count"
+      ],
+      "dims": [],
+      "side": "transition",
+      "transition": [
+        "farmland",
+        "forest"
+      ]
+    },
+    "ecology_to_industry": {
+      "question": "两山转化：生态用地转为生态产业用地的规模和效益如何",
+      "intent": "原生态类(林地03%/草地04%/水域11%)变化后为建设类或园地的规模，近似表征生态产业用地转化",
+      "risk": "low",
+      "subjects": [
+        "construction",
+        "ecology",
+        "forest",
+        "garden",
+        "grassland",
+        "transition",
+        "water"
+      ],
+      "filters": [
+        "ecology"
+      ],
+      "aggs": [
+        "area",
+        "count"
+      ],
+      "dims": [],
+      "side": "after",
+      "transition": null
+    },
+    "total_vs_net_reconcile": {
+      "question": "为什么变化图斑的总面积不等于各地类净变化面积之和",
+      "intent": "解释全库总面积与各地类净变化合计为何不等，并给出可核对的口径数字",
+      "risk": "medium",
+      "subjects": [
+        "farmland",
+        "land_class",
+        "patch",
+        "reconcile",
+        "total"
+      ],
+      "filters": [],
+      "aggs": [
+        "area",
+        "explain",
+        "flow",
+        "reconcile"
+      ],
+      "dims": [
+        "land_class"
+      ],
+      "side": "flow",
+      "transition": null
+    },
+    "redline_construction_polygons": {
+      "question": "生态保护红线内疑似新增建设的图斑有哪些，分布在哪",
+      "intent": "涉及生态保护红线(SFHX=是)且现为建设用地/疑似建设(TBLX∈建设集)的图斑清单与空间分布（GeoJSON 地图 + 属性明细）",
+      "risk": "high",
+      "subjects": [
+        "construction",
+        "redline"
+      ],
+      "filters": [
+        "redline"
+      ],
+      "aggs": [
+        "area",
+        "count",
+        "distribution",
+        "list",
+        "map"
+      ],
+      "dims": [
+        "county"
+      ],
+      "side": "after",
+      "transition": null
+    }
+  }
+}

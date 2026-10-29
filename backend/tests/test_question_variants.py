@@ -10,6 +10,10 @@
 注：本轮只扩充 `aliases`、不新增 `keywords`——关键词按"命中数/关键词总数"计分，
 新增关键词会稀释既有命中（实测使验收模板 1 条问题由可匹配退化为未匹配），
 `backend/tests/test_library_binding.py` 守住该退化。
+
+注：对话预匹配已切到 `geoagent.qa_semantics.semantic_match`（语义槽位匹配）；
+本文件继续守住问题库字面匹配与别名资产，语义匹配、留一别名覆盖率、独立留出集与
+结果校验见 `test_semantic_matching.py`。
 """
 from __future__ import annotations
 

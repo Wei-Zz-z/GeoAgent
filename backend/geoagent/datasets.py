@@ -40,6 +40,7 @@ class DatasetPeriod:
     round: Optional[int] = None
     note: str = ""
     enabled: bool = True
+    version: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -51,6 +52,7 @@ class DatasetPeriod:
             "round": self.round,
             "note": self.note,
             "enabled": self.enabled,
+            "version": self.version,
         }
 
 
@@ -75,6 +77,7 @@ class DatasetRegistry:
 
     periods: tuple[DatasetPeriod, ...] = ()
     default_id: str = ""
+    version: str = ""
 
     @property
     def default(self) -> Optional[DatasetPeriod]:
@@ -107,6 +110,7 @@ class DatasetRegistry:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            "version": self.version,
             "default_id": self.default_id,
             "datasets": [p.to_dict() for p in self.periods],
         }
@@ -140,6 +144,7 @@ def load_registry(asset_path: Optional[Path] = None) -> DatasetRegistry:
         return DatasetRegistry(periods=(), default_id="")
     data = json.loads(path.read_text(encoding="utf-8"))
     periods: list[DatasetPeriod] = []
+    version = str(data.get("version", ""))
     for item in data.get("datasets", []):
         periods.append(
             DatasetPeriod(
@@ -151,11 +156,13 @@ def load_registry(asset_path: Optional[Path] = None) -> DatasetRegistry:
                 round=item.get("round"),
                 note=str(item.get("note", "")),
                 enabled=bool(item.get("enabled", True)),
+                version=str(item.get("version") or version),
             )
         )
     return DatasetRegistry(
         periods=tuple(p for p in periods if p.id and p.table and p.enabled),
         default_id=str(data.get("default_id", "")),
+        version=version,
     )
 
 

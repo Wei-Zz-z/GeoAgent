@@ -11,6 +11,10 @@ backend/transcripts/
 **/__pycache__/
 REPORT_PROGRESS.md
 
+# 内部开发报告：只保留本地，不上传 GitHub
+docs/开发报告-智能问数优化.md
+docs/开发报告-智能问数优化-简版.docx
+
 # 环境变量（API key 一律不进仓库）
 .env
 .env.*

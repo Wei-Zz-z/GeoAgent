@@ -7,9 +7,12 @@ SQL 纪律、确定性工具优先级与正文/卡片分工。每个工具“是
 
 from __future__ import annotations
 
+import re
 from typing import Any, Optional
 
 from ..core.agent import Agent
+from ..dialogue import followup_hint, remember_query_state, resolve_followup_smart
+from ..number_guard import analyze_claims, apply_corrections, evidence_digest
 from ..prematch import build_period_prompt, resolve_turn_dataset, try_standard_answer
 from ..tools.chart import get_chart_tools
 from ..tools.knowledge import get_knowledge_tools
@@ -134,12 +137,126 @@ class SQLAgent(Agent):
 
     async def exec(self, ctx: Any, payload: Any) -> tuple[str, Any]:
         question = str(payload)
+        ctx.current_question = question
+        ctx.prematch_hint = ""
+        ctx.followup_notice = ""
+        # 0) 多轮追问补全：那第二期呢 / 这个县呢 / 再按类型分。
+        effective_question, followup = await resolve_followup_smart(ctx, question)
+        ctx.followup = {**followup, "last_user": question}
+        ctx.effective_question = effective_question
+        ctx.followup_notice = str(followup.get("notice") or "")
         # 1) 期次：本轮所有查询（标准问题与自由 SQL）都基于同一期数据。
-        resolve_turn_dataset(ctx, question)
+        resolve_turn_dataset(ctx, effective_question)
         # 2) 标准问题指标匹配：命中即确定性执行，口径最稳。
-        prematch = await try_standard_answer(ctx, question)
+        prematch = await try_standard_answer(
+            ctx,
+            question,
+            match_text=effective_question,
+            original_question=question,
+        )
         if prematch is not None:
             return "default", prematch
-        # 3) 未命中：把当期期次与命中口径写进提示词，交给自由 SQL 工具循环兜底。
+        # 3) 未命中：把当期期次、追问补全与命中口径写进提示词，交给自由 SQL 工具循环兜底。
         self.system_prompt = self.BASE_SYSTEM_PROMPT + build_period_prompt(ctx)
-        return await super().exec(ctx, payload)
+        hint = followup_hint(ctx)
+        if hint:
+            ctx.prematch_hint = "\n\n".join(
+                block for block in (ctx.prematch_hint, hint) if block
+            )
+            self.system_prompt = self.BASE_SYSTEM_PROMPT + build_period_prompt(ctx)
+        ctx._turn_start_index = len(ctx.session.history())
+        result = await super().exec(ctx, payload)
+        remember_query_state(ctx, question, effective_question)
+        return result
+
+    async def finalize_answer(self, ctx: Any, final: Any) -> Any:
+        """自由 SQL 回答出口：claim-level 校验 → 自动修正 → 重写/阻断。"""
+        final.content = re.sub(r"(?m)^\s*#{1,6}\s*", "", final.content or "")
+        start = int(getattr(ctx, "_turn_start_index", 0) or 0)
+        messages = list(getattr(ctx, "turn_tool_messages", None) or [])
+        if not messages:
+            messages = ctx.session.history()[start:]
+        question = str(getattr(ctx, "current_question", "") or "")
+        claims = analyze_claims(final.content or "", messages, question=question)
+        rewrite_attempted = False
+        blocked = False
+
+        if claims.get("corrections"):
+            final.content = apply_corrections(final.content or "", claims["corrections"])
+            claims = analyze_claims(final.content or "", messages, question=question)
+
+        if not claims.get("ok"):
+            rewritten = await self._rewrite_answer(ctx, final.content or "", claims, messages)
+            rewrite_attempted = True
+            if rewritten:
+                final.content = re.sub(r"(?m)^\s*#{1,6}\s*", "", rewritten)
+                claims = analyze_claims(final.content or "", messages, question=question)
+                if claims.get("corrections"):
+                    final.content = apply_corrections(final.content or "", claims["corrections"])
+                    claims = analyze_claims(final.content or "", messages, question=question)
+
+        if not claims.get("ok"):
+            blocked = True
+            final.content = (
+                "本轮查询已完成，但回答中的部分数字无法与查询结果对应。"
+                "为避免误导，正文不再给出未经核实的数字。\n\n"
+                "请以上方查询结果表格为准；如需继续，请缩小统计范围，"
+                "或明确期次、区县和统计口径。"
+            )
+
+        remember_query_state(
+            ctx,
+            question,
+            str(getattr(ctx, "effective_question", "") or ""),
+        )
+        ctx.answer_metadata = {
+            "number_guard": {
+                **claims,
+                "rewrite_attempted": rewrite_attempted,
+                "blocked": blocked,
+            },
+            "query_state": dict(ctx.query_state),
+        }
+        return final
+
+    async def _rewrite_answer(
+        self,
+        ctx: Any,
+        content: str,
+        claims: dict[str, Any],
+        messages: list[dict[str, Any]],
+    ) -> Optional[str]:
+        """用本轮工具证据重写一次；失败返回 None，由调用方阻断。"""
+        llm = getattr(ctx, "llm", None)
+        if llm is None:
+            return None
+        unverified = "、".join(
+            f"{item.get('raw')}{item.get('unit') or ''}"
+            for item in (claims.get("unverified") or [])[:8]
+        )
+        evidence = evidence_digest(messages)
+        prompt = (
+            "请重写下面的回答，要求：\n"
+            "1. 只能使用“工具证据”中出现的数字；不得新增、心算或改写数字；\n"
+            "2. 无法确认的数字必须删除该数字或改成定性描述，不能保留原数字；\n"
+            "3. 保留期次、范围、单位和统计口径说明；\n"
+            "4. 输出纯文本，不要 Markdown 标题或代码块。\n\n"
+            f"用户问题：{getattr(ctx, 'current_question', '') or ''}\n\n"
+            f"当前回答：\n{content}\n\n"
+            f"无法溯源的数字：{unverified}\n\n"
+            f"工具证据：\n{evidence}"
+        )
+        try:
+            message = await llm.chat(
+                model=str(getattr(ctx, "model", "") or ""),
+                messages=[
+                    {"role": "system", "content": "你是严谨的地理统计回答校订器。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.0,
+                max_tokens=800,
+            )
+        except Exception:
+            return None
+        text = str(getattr(message, "content", "") or "").strip()
+        return text or None

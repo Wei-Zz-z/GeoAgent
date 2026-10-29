@@ -1,0 +1,50 @@
+{
+  "name": "land-change-field-dictionaries",
+  "version": "2026-10-29.1",
+  "source": "knowledge_base.metadata_column + knowledge_base.dict_tblx + 三调城镇村属性码",
+  "updated_at": "2026-10-29",
+  "notes": [
+    "TZ 的字母值 ZZ/GY 来自 dict_tblx.TB_FEATURE；SN/LC 与数字编码尚无正式字典，标为待确认，不能当成已确认业务含义。",
+    "QSX 是前时相日期，不是分类码；格式为 YYYYMMDD。",
+    "CZCSXM 为三调城镇村属性码；201-205 为常用值，带 A 后缀的含义待业务确认。",
+    "字典是展示与提示词辅助，不替代 SQL 中的原始编码判断。"
+  ],
+  "fields": {
+    "TZ": {
+      "label": "图斑特征",
+      "type": "code",
+      "values": {
+        "ZZ": "住宅",
+        "GY": "工业",
+        "SN": "商业（待业务确认）",
+        "LC": "林场（待业务确认）"
+      },
+      "fallback": "数字/未收录编码",
+      "status": "partial"
+    },
+    "QSX": {
+      "label": "前时相",
+      "type": "date",
+      "format": "YYYYMMDD",
+      "example": "20250906",
+      "display": "2025-09-06",
+      "status": "confirmed"
+    },
+    "CZCSXM": {
+      "label": "城镇村属性码",
+      "type": "code",
+      "values": {
+        "201": "城市",
+        "202": "建制镇",
+        "203": "村庄",
+        "204": "盐田及采矿用地",
+        "205": "特殊用地",
+        "201A": "城市范围内（A 后缀待确认）",
+        "202A": "建制镇范围内（A 后缀待确认）",
+        "203A": "村庄范围内（A 后缀待确认）"
+      },
+      "fallback": "未收录属性码",
+      "status": "partial"
+    }
+  }
+}

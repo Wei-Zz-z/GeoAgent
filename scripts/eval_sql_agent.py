@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import re
 import sys
 import tempfile
@@ -90,7 +91,7 @@ CASES: list[dict[str, Any]] = [
         ),
         "expected": {"max_mj": 200.0},
         "tolerance": 0.001,
-        "expected_contains": ["平方米"],
+        "expected_contains": ["亩"],
         "requires_sql": True,
     },
     {
@@ -125,10 +126,25 @@ def _extract_numbers(text: str) -> list[float]:
     return [float(m) for m in re.findall(r"\d+(?:\.\d+)?", cleaned)]
 
 
-def _number_matches(answer: str, expected: float, tolerance: float) -> bool:
+def _number_matches(
+    answer: str,
+    expected: float,
+    tolerance: float,
+    *,
+    unit_from_m2: bool = False,
+) -> bool:
+    """匹配正文数字；``unit_from_m2`` 时同时接受期望值换算成亩后的数字。
+
+    库内面积是平方米，问答展示统一为亩（1 ㎡ = 0.0015 亩）。golden 参考值来自
+    原始 SQL（平方米），因此面积类断言必须同时接受亩，否则会把正确回答判成失败。
+    """
+    candidates = [expected]
+    if unit_from_m2:
+        candidates.append(expected * 0.0015)
     for num in _extract_numbers(answer):
-        if abs(num - expected) / max(abs(expected), 1e-9) <= tolerance:
-            return True
+        for candidate in candidates:
+            if abs(num - candidate) / max(abs(candidate), 1e-9) <= tolerance:
+                return True
     return False
 
 
@@ -205,6 +221,14 @@ async def evaluate_case(
     agent = SQLAgent(model=model)
     _, final = await agent.exec(ctx, case["question"])
     answer = final.content or ""
+    # 标准问题路径的正文只给结论摘要，完整字典/明细在 artifact 表格里；
+    # 文本包含性断言需要把 artifact 也纳入，否则会误判“字典没返回”。
+    artifact_text = "\n".join(
+        json.dumps(event.get("data"), ensure_ascii=False)
+        for event in collector.events
+        if event.get("type") == "artifact"
+    )
+    answer_for_contains = answer + ("\n" + artifact_text if artifact_text else "")
     tool_names = collector.tool_names()
     checks: list[str] = []
     ok = True
@@ -218,7 +242,7 @@ async def evaluate_case(
         checks.append("无需查询数据库")
 
     for text in case.get("expected_contains", []):
-        if text in answer:
+        if text in answer_for_contains:
             checks.append(f"包含「{text}」")
         else:
             ok = False
@@ -230,12 +254,19 @@ async def evaluate_case(
         checks.append(f"占比 ≈{ref['percent']:.2f}% -> {'命中' if hit else '未命中'}")
         ok = ok and hit
     if "numeric_value" in ref:
-        hit = _number_matches(answer, ref["numeric_value"], tolerance)
+        hit = _number_matches(
+            answer, ref["numeric_value"], tolerance, unit_from_m2=True
+        )
         checks.append(f"数值 ≈{ref['numeric_value']:.2f} -> {'命中' if hit else '未命中'}")
         ok = ok and hit
     for key, value in case.get("expected", {}).items():
         if key in ref:
-            hit = _number_matches(answer, float(ref[key]), tolerance)
+            hit = _number_matches(
+                answer,
+                float(ref[key]),
+                tolerance,
+                unit_from_m2=key in {"max_mj", "top_area_m2"},
+            )
             checks.append(f"{key}={ref[key]} -> {'命中' if hit else '未命中'}")
             ok = ok and hit
 

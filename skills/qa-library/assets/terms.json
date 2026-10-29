@@ -1,0 +1,109 @@
+{
+  "name": "geoagent-qa-terms",
+  "version": "1.0",
+  "description": "智能问数语义层词表：主体、过滤、聚合、维度、前后时项、转换方向与风险规则。业务可编辑；改词表不需要改匹配代码。",
+  "notes": [
+    "subjects 描述‘问的是什么’，specific=true 的具体主体（耕地/林地/建设用地等）权重高于图斑、地类等泛主体。",
+    "filters 描述必须一起出现的限定（永农/红线/细碎/可调整/种植属性/两山），问题有、条目没有时直接否决。",
+    "aggregations/dimensions 描述‘怎么算、按什么分组’，用于区分面积、数量、占比、清单、Top-N、分县等口径。",
+    "transitions 用于识别‘耕地转建设用地’这类方向敏感的问题，顺序不能反。",
+    "risk 决定自动执行阈值：high 需要更高匹配分，并在回答中显著标注疑似/限制。"
+  ],
+  "subjects": {
+    "farmland": {"label": "耕地", "specific": true, "synonyms": ["耕地", "农田", "承包地", "口粮田", "种粮"]},
+    "forest": {"label": "林地", "specific": true, "synonyms": ["林地", "有林地", "乔木林"]},
+    "grassland": {"label": "草地", "specific": true, "synonyms": ["草地", "牧草地"]},
+    "garden": {"label": "园地", "specific": true, "synonyms": ["园地", "果园", "茶园", "种植园"]},
+    "construction": {"label": "建设用地", "specific": true, "synonyms": ["建设用地", "建设", "非农建设", "盖房", "建厂", "建房", "厂房", "建筑物", "构筑物", "动土", "硬化", "光伏", "采矿", "占用", "被占", "建成"]},
+    "water": {"label": "水域", "specific": true, "synonyms": ["水域", "坑塘", "水面", "河流"]},
+    "ecology": {"label": "生态用地", "specific": true, "synonyms": ["两山", "生态产业", "生态用地", "生态产品", "生态价值"]},
+    "yongnong": {"label": "永久基本农田", "specific": true, "synonyms": ["永久基本农田", "永农", "基本农田"]},
+    "redline": {"label": "生态保护红线", "specific": true, "synonyms": ["生态保护红线", "生态红线", "红线"]},
+    "land_class": {"label": "地类", "specific": false, "synonyms": ["地类", "土地类型", "三调地类"]},
+    "patch_type": {"label": "图斑类型", "specific": false, "synonyms": ["图斑类型", "tblx", "变化后类型", "影像编码"]},
+    "patch": {"label": "图斑", "specific": false, "synonyms": ["图斑"]},
+    "feature": {"label": "图斑特征", "specific": false, "synonyms": ["图斑特征", "tz", "特征"]},
+    "timephase": {"label": "时相", "specific": false, "synonyms": ["时相", "qsx", "hsx", "影像期次"]},
+    "czcs": {"label": "城镇村属性", "specific": false, "synonyms": ["城镇村", "村庄", "城镇", "czcsxm"]},
+    "planting": {"label": "种植属性", "specific": false, "synonyms": ["种植属性", "非粮化", "粮食", "轮作", "未耕种"]},
+    "adjustable": {"label": "可调整地类", "specific": true, "synonyms": ["可调整地类", "即可恢复", "工程恢复"]},
+    "fragment": {"label": "细碎图斑", "specific": true, "synonyms": ["细碎", "零碎", "小图斑", "碎图斑", "小碎"]},
+    "transition": {"label": "地类转换", "specific": true, "synonyms": ["转换", "转移", "地类转换", "变化类型", "转成", "变成", "转为", "转化"]},
+    "activity": {"label": "转换活跃度", "specific": true, "synonyms": ["活跃度", "不稳定", "频繁", "变动", "最活跃", "变化最多", "变动最大", "变化最"]},
+    "reconcile": {"label": "合计核对", "specific": true, "synonyms": ["对不上", "不等于", "差额", "净变化之和"]},
+    "unit": {"label": "面积单位换算", "specific": true, "synonyms": ["换算", "单位换算"]},
+    "total": {"label": "全库合计", "specific": false, "synonyms": ["全库", "全部", "总共", "总量"]}
+  },
+  "filters": {
+    "yongnong": {"label": "永久基本农田", "synonyms": ["永久基本农田", "永农", "基本农田"]},
+    "redline": {"label": "生态保护红线", "synonyms": ["生态保护红线", "生态红线", "红线"]},
+    "fragment": {"label": "细碎图斑", "synonyms": ["细碎", "零碎", "小图斑", "碎图斑", "小碎"]},
+    "adjustable": {"label": "可调整地类", "synonyms": ["可调整地类", "即可恢复", "工程恢复"]},
+    "planting": {"label": "种植属性", "synonyms": ["种植属性", "非粮化", "粮食", "轮作", "未耕种"]},
+    "ecology": {"label": "两山/生态产业", "synonyms": ["两山", "生态产业", "生态用地", "生态产品", "生态价值"]}
+  },
+  "aggregations": {
+    "ratio": {"label": "占比", "synonyms": ["占比", "比例", "百分比", "比重", "份额", "百分点", "百分之"]},
+    "count": {"label": "数量", "synonyms": ["数量", "个数", "多少块", "几条", "图斑数", "共有多少", "一共有多少", "有多少", "几个图斑", "多少条", "有没有"]},
+    "area": {"label": "面积", "synonyms": ["面积", "多大", "多少亩", "公顷", "平方米", "规模"]},
+    "list": {"label": "清单", "synonyms": ["列出", "清单", "对照表", "对照", "代码表", "编码表", "有哪些", "都有啥", "字典", "名称和编码", "名字跟编号"]},
+    "max": {"label": "最大值", "synonyms": ["最大", "面积最大", "单块", "单个", "最大的一块"]},
+    "top": {"label": "Top-N/排序", "synonyms": ["排名", "排行", "top", "前几", "排序", "按大小", "排一下", "最大的几块", "前列", "前十", "前 10", "前10"]},
+    "flow": {"label": "流入流出", "synonyms": ["流出", "流入", "净变化", "净增", "净减", "进出", "增减", "转出", "转进"]},
+    "structure": {"label": "构成", "synonyms": ["构成", "结构", "组成"]},
+    "explain": {"label": "解释", "synonyms": ["为什么", "怎么回事", "咋回事"]},
+    "activity": {"label": "活跃度", "synonyms": ["活跃度", "不稳定", "频繁", "变动", "最活跃"]},
+    "average": {"label": "平均值", "synonyms": ["平均值", "平均面积", "平均", "均值"]},
+    "median": {"label": "中位数", "synonyms": ["中位数", "中位值", "中位"]},
+    "reconcile": {"label": "合计核对", "synonyms": ["对不上", "不等于", "差额", "净变化之和", "加起来对不上"]},
+    "source": {"label": "来源", "synonyms": ["来源", "从哪来", "来自", "由哪些", "占了哪些", "从哪些", "哪里来", "转过来", "来源构成", "来源地类", "占了哪些地"]},
+    "target": {"label": "流向", "synonyms": ["流向哪里", "流向哪些", "转成什么", "变成什么", "变化成什么", "去向", "流向明细", "转成了什么"]},
+    "map": {"label": "地图", "synonyms": ["地图", "上图", "边界", "geojson"]},
+    "distribution": {"label": "分布", "synonyms": ["分布", "哪些县", "在哪些县", "哪些地方"]}
+  },
+  "dimensions": {
+    "county": {"label": "区县", "synonyms": ["分县", "各县", "每个县", "各区县", "各乡镇", "每个乡镇", "行政区", "分区域", "按县", "按区", "哪几个县", "哪些县", "哪个县", "几个县", "分区县", "分县区", "县级"]},
+    "type": {"label": "图斑类型", "synonyms": ["按类型", "每种类型", "各类型", "分类", "分类型", "各类图斑", "类型分别", "每种图斑类型", "不同类型", "各种类型", "类型分组"]},
+    "land_class": {"label": "地类", "synonyms": ["按地类", "每种地类", "各地类", "地类分别", "哪些地", "哪些地类", "什么地类"]},
+    "feature": {"label": "图斑特征", "synonyms": ["按特征", "特征分类"]},
+    "timephase": {"label": "时相", "synonyms": ["按时相", "前后时相"]},
+    "czcs": {"label": "城镇村", "synonyms": ["按城镇村", "城镇村分类"]},
+    "county_rank": {"label": "区县排名", "synonyms": ["净减少最多", "净增加最多", "减少最多", "增加最多", "排名", "排行", "top", "最严重"]}
+  },
+  "side_cues": {
+    "before": ["变化前", "原来", "三调", "前时相"],
+    "after": ["变化后", "现在", "当前", "后时相"],
+    "flow": ["流出", "流入", "净变化", "净增", "净减", "进出", "增减", "转出", "转进"]
+  },
+  "transitions": {
+    "phrases": {
+      "退耕还林": ["farmland", "forest"],
+      "还林": ["farmland", "forest"],
+      "退林还耕": ["forest", "farmland"],
+      "退建还耕": ["construction", "farmland"],
+      "复垦": ["construction", "farmland"]
+    },
+    "ordered": [
+      {"source": "farmland", "target": "construction", "patterns": [["耕地", "建设用地"], ["耕地", "建设"], ["农田", "建设"], ["耕地", "厂房"], ["耕地", "房子"]]},
+      {"source": "construction", "target": "farmland", "patterns": [["建设用地", "耕地"], ["建设", "耕地"], ["厂房", "耕地"]]},
+      {"source": "forest", "target": "farmland", "patterns": [["林地", "耕地"]]},
+      {"source": "farmland", "target": "forest", "patterns": [["耕地", "林地"]]},
+      {"source": "grassland", "target": "construction", "patterns": [["草地", "建设用地"], ["草地", "建设"]]}
+    ]
+  },
+  "negation": ["不用", "别按", "别看", "别用", "别管", "不要查", "直接写", "直接编", "直接取", "直接下结论", "随便", "编造", "编一个", "编一份", "编出来", "估个", "估一个", "一律", "就按", "按我说的", "当成", "算成", "也算", "算一次", "都算", "平均拆"],
+  "vague": ["情况怎么样", "情况如何", "怎么样", "如何", "啥情况"],
+  "risk": {
+    "high_subjects": ["yongnong", "redline"],
+    "high_words": ["违法", "违规"],
+    "medium_aggs": ["ratio", "flow", "reconcile", "activity"],
+    "medium_dims": ["county_rank"],
+    "high_threshold_extra": 0.06
+  },
+  "decision": {
+    "score_thresholds": {"low": 0.42, "medium": 0.43, "high": 0.48},
+    "candidate_margin": 0.05,
+    "candidate_floor": 0.36,
+    "minimum_confidence": 0.42
+  }
+}

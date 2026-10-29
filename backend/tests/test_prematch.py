@@ -279,7 +279,9 @@ async def test_sql_agent_answers_from_standard_question_without_llm(tmp_path):
     _, final = await SQLAgent().exec(ctx, "全库共有多少个变化图斑、总面积是多少")
     assert ctx.llm.calls == []
     assert gateway.sql and TABLE in gateway.sql[0]
-    assert "标准问题库条目" in final.content
+    assert "数量：3" in final.content
+    assert "数据期次：" in final.content
+    assert not final.content.startswith("#")
 
 # ---------------------------------------------------------------- 行政区下钻
 

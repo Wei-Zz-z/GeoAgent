@@ -29,8 +29,8 @@ description: 土地变化监测快报生成（按默认模板输出 Word/PDF，�
 
 - 原土地类型 = `"DLBM"`/`"DLMC"`（三调二级类）；图斑类型（变化后）= `"TBLX"`。
 - 数据库存储面积单位为平方米；面向快报输出时统一换算为亩。
-- TBLX→三大类使用 `assets/tblx_categories.json` 的默认模糊映射模板；
-  用户提供正式规则后替换。
+- TBLX→三大类使用 `assets/tblx_categories.json` 的字典驱动映射（清单以
+  `knowledge_base.dict_tblx` 为正式来源；边界项标记 pending_business）。
 - 疑似违法占地统计 v1 留空：需要执法/审批数据（农转用、供地、增减挂钩、采矿权、
   设施农用地/临时用地审批），当前暂缺。
 - 统计范围为数据库表全量数据。

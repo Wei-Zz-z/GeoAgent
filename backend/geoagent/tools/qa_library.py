@@ -141,10 +141,12 @@ _entry_vectors_cache: dict[tuple[str, str], list[list[float]]] = {}
 
 
 def _entry_text(entry: QuestionEntry) -> str:
-    """构造用于向量化的代表性文本：标准问法 + 意图 + 别名。"""
-    parts = [entry.question, entry.intent]
-    parts.extend(a for a in entry.aliases if a)
-    return " ".join(parts)
+    """构造用于向量化的代表性文本：标准问法 + 意图。
+
+    刻意不放入 aliases：别名是词法匹配资产，若参与向量化，会让“留一别名”评测
+    通过向量继续看到被删掉的别名，等于测试集泄漏。
+    """
+    return " ".join([entry.question, entry.intent])
 
 
 async def _entry_vectors(embedder: Any, path: Path) -> list[list[float]]:
@@ -191,6 +193,60 @@ async def search_semantic(
             scored.append((entry, combined))
     scored.sort(key=lambda pair: pair[1], reverse=True)
     return [e for e, _ in scored[:top_k]]
+
+
+async def vector_scores_many(
+    queries: list[str],
+    *,
+    skills_dir: Optional[str | Path] = None,
+    embedder: Any = None,
+    min_similarity: float = 0.0,
+) -> list[dict[str, float]]:
+    """批量计算问题与每条标准问题的 embedding 余弦相似度（供 RRF 召回使用）。
+
+    与 ``search_semantic`` 的区别：这里只返回纯向量相似度，不混关键词分，
+    便于调用方把“词法排名”和“向量排名”做倒数排名融合（RRF）。
+    条目向量按（资产路径, embedding 模型）缓存，批量查询只 embed 一次。
+    """
+    if not queries or embedder is None:
+        return [{} for _ in queries]
+    path = resolve_asset_path(skills_dir)
+    entries = load_entries(path)
+    if not entries:
+        return [{} for _ in queries]
+    try:
+        vectors = await _entry_vectors(embedder, path)
+        query_vectors = await embedder.embed(list(queries))
+    except Exception:
+        return [{} for _ in queries]
+    if len(query_vectors) != len(queries):
+        return [{} for _ in queries]
+    results: list[dict[str, float]] = []
+    for query_vector in query_vectors:
+        row: dict[str, float] = {}
+        for entry, entry_vector in zip(entries, vectors):
+            similarity = max(0.0, cosine_similarity(query_vector, entry_vector))
+            if similarity >= min_similarity:
+                row[entry.id] = round(similarity, 6)
+        results.append(row)
+    return results
+
+
+async def vector_scores(
+    query: str,
+    *,
+    skills_dir: Optional[str | Path] = None,
+    embedder: Any = None,
+    min_similarity: float = 0.0,
+) -> dict[str, float]:
+    """单条问题的纯向量相似度（``vector_scores_many`` 的单条封装）。"""
+    rows = await vector_scores_many(
+        [query],
+        skills_dir=skills_dir,
+        embedder=embedder,
+        min_similarity=min_similarity,
+    )
+    return rows[0] if rows else {}
 
 
 def _format_match(entries: list[QuestionEntry]) -> str:
