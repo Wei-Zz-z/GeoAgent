@@ -18,6 +18,34 @@ from .schemas import ConversationCreate, ModelSwitch, UserMessage
 router = APIRouter(prefix="/api")
 
 
+@router.get('/elder/divisions')
+def elder_divisions(request: Request) -> dict[str, Any]:
+    """历史区划仅供机构地址筛选，不改变坐标和实际分析区县。"""
+    from ..analysis.admin_divisions import load_divisions, match_addresses
+    path = request.app.state.settings.skills_dir / 'elder-access/assets/hangzhou-divisions-2023.json'
+    if not path.is_file():
+        raise HTTPException(status_code=503, detail='区划参考字典未安装；仍可按区县选择机构。')
+    divisions = load_divisions(str(path), path.stat().st_mtime_ns)
+    facilities = list_elder_facilities()['facilities']
+    return {**divisions, 'assignments': match_addresses(facilities, divisions)}
+
+
+@router.get('/elder/facilities')
+def list_elder_facilities() -> dict[str, Any]:
+    """仅返回已准备试点的机构目录；同步路由在线程池加载数据。"""
+    from ..analysis.facility_access import get_facility_access
+    try:
+        data = get_facility_access()
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {'region': data.metadata['region'], 'districts': getattr(data, 'districts', [{'id': data.metadata['region'], 'name': data.metadata['region']}]), 'facilities': [
+        dict({key: facility.get(key, '') for key in ('id', 'name', 'region', 'address')},
+             district_id=facility.get('district_id', facility.get('region', '')),
+             available=facility.get('available', True), status=facility.get('status', '可试算；坐标及道路接入待核实'))
+        for facility in data.facilities
+    ]}
+
+
 def _store(request: Request) -> ConversationStore:
     return request.app.state.store
 

@@ -3,7 +3,8 @@
   <div v-else class="app">
     <ConversationList />
     <ChatWindow />
-    <aside v-if="chat.currentId" class="template-panel" :class="{ 'template-panel-open': panelOpen }">
+    <ElderFacilityPanel v-if="chat.currentId && chat.agentId === 'elder_care'" :key="chat.currentId" />
+    <aside v-if="chat.currentId && chat.agentId !== 'elder_care'" class="template-panel" :class="{ 'template-panel-open': panelOpen }">
       <div class="template-panel-head">
         <button class="icon-btn" type="button" :title="panelOpen ? '收起模板工作区' : '展开模板工作区'" :aria-expanded="panelOpen" @click="panelOpen = !panelOpen">
           {{ panelOpen ? '›' : '‹' }}
@@ -20,6 +21,7 @@ import { ref } from 'vue'
 import { onMounted } from 'vue'
 import ConversationList from './components/ConversationList.vue'
 import ChatWindow from './components/ChatWindow.vue'
+import ElderFacilityPanel from './components/ElderFacilityPanel.vue'
 import TemplateWorkflow from './components/TemplateWorkflow.vue'
 import CountyMapWorkspace from './components/CountyMapWorkspace.vue'
 import { chat } from './stores/chat'
