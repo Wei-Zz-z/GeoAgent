@@ -94,7 +94,7 @@ def test_map_route_accepts_two_zips_and_old_raw_upload(monkeypatch: pytest.Monke
         assert vector.read_bytes() == b"vector"
         assert boundary is None or boundary.read_bytes() == b"boundary"
         return {"has_boundary": boundary is not None}
-    monkeypatch.setattr(county_routes, "build_county_chart_map", fake_build)
+    monkeypatch.setattr("geoagent.analysis.county_charts.build_county_chart_map", fake_build)
     app = FastAPI()
     app.include_router(county_routes.router)
     with TestClient(app) as client:
