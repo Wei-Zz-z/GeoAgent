@@ -241,7 +241,7 @@ const suggestions = computed(() => chat.agentId === 'elder_care' ? [
   '耕地转为建设用地的面积是多少？',
   '按三大类统计各类土地变化面积',
   '生成本期土地变化监测快报',
-  '分析养老机构的步行可达性',
+  ...(chat.agents.some(a => a.id === 'elder_care') ? ['分析养老机构的步行可达性'] : []),
 ])
 
 
