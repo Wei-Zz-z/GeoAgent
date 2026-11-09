@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from pyproj import Transformer
-from shapely import make_valid
+from shapely import make_valid, transform as transform_coordinates
 from shapely.geometry import shape
 from shapely.ops import transform, unary_union
 
@@ -20,7 +20,7 @@ def _load(path: str, modified_ns: int, metric_crs: str) -> tuple[dict[str, Any],
     repaired = 0
     for feature in data['features']:
         props = feature['properties']
-        geom = transform(project, shape(feature['geometry']))
+        geom = transform_coordinates(shape(feature['geometry']), project, interleaved=False)
         if not geom.is_valid:
             geom = make_valid(geom)
             repaired += 1
@@ -51,3 +51,16 @@ def township_intersections(coverage: Any, boundaries: list, available: bool) -> 
                          'intersection_percent': round(area / boundary.area * 100, 4)})
     rows.sort(key=lambda row: (-row['intersection_m2'], row['county'], row['name']))
     return {'historical_township_count': len(rows) if available else None, 'historical_townships': rows}
+
+
+def township_uncovered(coverage: Any, boundaries: list, available: bool) -> tuple[Any, dict]:
+    """仅在与本档覆盖面有正面积相交的街道内计算剩余范围。"""
+    selected = [boundary for _, _, boundary in boundaries
+                if coverage.intersects(boundary) and coverage.intersection(boundary).area > 0]
+    scope = unary_union(selected)
+    remaining = scope.difference(coverage)
+    return remaining, {
+        'uncovered_scope': 'intersecting_townships',
+        'uncovered_township_count': len(selected) if available else None,
+        'model_uncovered_m2': round(remaining.area, 2) if available else None,
+    }

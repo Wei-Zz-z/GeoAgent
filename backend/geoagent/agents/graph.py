@@ -3,11 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from ..config import elder_care_enabled
 from ..core.context import ConversationContext
 from ..core.events import Event
+from ..core.llm import AssistantMessage
 from ..core.node import Flow, Node
 from .chat import ChatAgent
-from .elder_care import ElderCareAgent
 from .router import RouterNode
 from .sql import SQLAgent
 
@@ -31,12 +32,44 @@ DEFAULT_AGENT_ID = "sql"
 
 _AGENT_IDS = {spec.id for spec in AGENT_SPECS}
 
+# 场景未启用时的统一提示（当前只有养老可达性评估会整体关闭）。
+SCENE_DISABLED_MESSAGE = (
+    "本部署未启用「养老可达性评估」场景。当前可用：土地变化统计问答、通用对话。"
+    "如需启用，请在后端环境变量里设置 GEOAGENT_ELDER_CARE=1 后重启服务。"
+)
+
+
+class DisabledSceneNode(Node):
+    """场景关闭时的占位节点：给出明确提示，不报错也不静默改换场景。"""
+
+    def __init__(self) -> None:
+        super().__init__(name="disabled_scene")
+
+    async def exec(self, ctx: Any, payload: Any) -> tuple[str, Any]:
+        model = getattr(ctx, "model", "") or ""
+        await ctx.emit(
+            Event(
+                "message",
+                {
+                    "role": "assistant",
+                    "content": SCENE_DISABLED_MESSAGE,
+                    "model": model,
+                    "route": getattr(ctx, "route", "") or "",
+                    "answer_origin": getattr(ctx, "answer_origin", "") or "",
+                    "subagents": [],
+                },
+            )
+        )
+        ctx.session.add_message({"role": "assistant", "content": SCENE_DISABLED_MESSAGE})
+        return "default", AssistantMessage(content=SCENE_DISABLED_MESSAGE, model=model)
+
 
 def agent_catalog() -> list[dict[str, str]]:
     """可选智能体清单（供 GET /api/agents 与前端选择框使用）。"""
     return [
         {"id": spec.id, "label": spec.label, "description": spec.description}
         for spec in AGENT_SPECS
+        if spec.id != "elder_care" or elder_care_enabled()
     ]
 
 
@@ -48,6 +81,11 @@ def build_agent(agent_id: str, model: Optional[str] = None) -> Node:
     """按会话选择的智能体 id 构建单个 Agent 节点（不做 LLM 路由）。"""
     target = str(agent_id or "").strip()
     if target == "elder_care":
+        if not elder_care_enabled():
+            return DisabledSceneNode()
+        # 延迟导入：场景关闭时不再加载 analysis 下的 geopandas/networkx 重依赖
+        from .elder_care import ElderCareAgent
+
         return ElderCareAgent(model=model)
     if target == "chat":
         return ChatAgent(model=model)
@@ -67,8 +105,14 @@ def build_geo_graph(
     """
     router = RouterNode(model=router_model)
     sql = SQLAgent(model=sql_model)
-    elder = ElderCareAgent(model=elder_care_model)
     chat = ChatAgent(model=chat_model)
+    elder: Node
+    if elder_care_enabled():
+        from .elder_care import ElderCareAgent
+
+        elder = ElderCareAgent(model=elder_care_model)
+    else:
+        elder = DisabledSceneNode()
 
     router - "sql" >> sql
     router - "elder_care" >> elder

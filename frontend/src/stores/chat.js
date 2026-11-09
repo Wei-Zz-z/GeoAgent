@@ -144,8 +144,11 @@ function buildRenderMessages(rawMessages) {
 }
 
 async function refreshMessages() {
-  if (!chat.currentId) return
-  const data = await api.getMessages(chat.currentId)
+  const conversationId = chat.currentId
+  if (!conversationId) return
+  const data = await api.getMessages(conversationId)
+  // 回包到达时可能已经切到别的会话：过期结果必须丢弃，否则会把旧消息画进新会话
+  if (chat.currentId !== conversationId) return
   chat.messages = buildRenderMessages(data.messages || [])
 }
 
@@ -157,21 +160,33 @@ async function refreshConversations() {
 function disconnect() {
   if (chat._ws) {
     chat._ws.onclose = null
+    chat._ws.onmessage = null
     chat._ws.close()
     chat._ws = null
   }
+  // 旧会话的流式占位与状态一并丢弃，避免切到新会话后残留
+  chat._streamAssistant = null
+  chat.streaming = false
 }
 
 function connect() {
-  if (!chat.currentId) return
-  chat._ws = openChatSocket(chat.currentId, handleEvent)
-  chat._ws.onclose = () => {
+  const conversationId = chat.currentId
+  if (!conversationId) return
+  // 事件按会话隔离：旧连接上迟到的事件在切走之后一律丢弃
+  const socket = openChatSocket(conversationId, (event) => {
+    if (chat.currentId !== conversationId) return
+    handleEvent(event)
+  })
+  chat._ws = socket
+  socket.onclose = () => {
+    if (chat._ws !== socket) return
     if (chat.streaming) {
       chat.streaming = false
       chat.error = '连接已断开'
     }
   }
-  chat._ws.onerror = () => {
+  socket.onerror = () => {
+    if (chat._ws !== socket) return
     chat.error = 'WebSocket 连接失败，请确认后端已启动'
   }
 }
@@ -302,6 +317,8 @@ async function selectConversation(id) {
   chat.streaming = false
   chat.error = ''
   const conv = await api.getConversation(id)
+  // 详情回包可能晚于下一次切换（新建会话时最容易撞上），此时必须丢弃
+  if (chat.currentId !== id) return
   chat.currentModel = conv.model || ''
   // 恢复该会话上次选中的数据表与智能体；没有记录或已失效时回落到默认值
   const savedDataset = loadPrefs(DATASET_PREF_KEY)[id]
@@ -342,11 +359,14 @@ async function deleteConversation(id) {
 }
 
 async function switchModel(model) {
-  if (!chat.currentId) return
-  await api.switchModel(chat.currentId, model)
-  chat.currentModel = model
-  const conv = chat.conversations.find((c) => c.id === chat.currentId)
+  const conversationId = chat.currentId
+  if (!conversationId) return
+  await api.switchModel(conversationId, model)
+  // 期间可能已切到别的会话：只更新会话列表，不再改动当前会话的模型显示
+  const conv = chat.conversations.find((c) => c.id === conversationId)
   if (conv) conv.model = model
+  if (chat.currentId !== conversationId) return
+  chat.currentModel = model
 }
 
 // 修改最后一条用户问题：先撤掉服务端旧问题与旧回答，再以新内容重新发起一轮
@@ -364,6 +384,11 @@ async function editAndResend(content) {
   return sendMessage(text)
 }
 
+// 套合数据被删除或新增后，重新拉取期次列表（下拉框随之更新；失效的选中项会自动回落默认期次）
+async function refreshDatasets() {
+  const data = await api.listDatasets()
+  applyDatasets(data)
+}
 function sendMessage(content, origin = null) {
   const text = String(content || '').trim()
   if (!text || chat.streaming || !chat._ws || chat._ws.readyState !== WebSocket.OPEN) return false
@@ -387,3 +412,4 @@ chat.selectAgent = selectAgent
 chat.editAndResend = editAndResend
 chat.sendMessage = sendMessage
 chat.refreshMessages = refreshMessages
+chat.refreshDatasets = refreshDatasets

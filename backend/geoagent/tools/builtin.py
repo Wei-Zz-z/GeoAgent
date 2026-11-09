@@ -98,10 +98,10 @@ def list_skills(ctx: Any) -> ToolResult:
         )
     catalog = loader.catalog()
     rows = [
-        {"name": info["name"], "description": info["description"]}
+        {"技能": info["name"], "说明": info["description"]}
         for info in catalog.values()
     ]
-    content = "\n".join(f"- {r['name']}: {r['description']}" for r in rows) or "（无可用技能）"
+    content = "\n".join(f"- {r['技能']}: {r['说明']}" for r in rows) or "（无可用技能）"
     return ToolResult(
         tool_call_id="",
         name="list_skills",
@@ -110,7 +110,7 @@ def list_skills(ctx: Any) -> ToolResult:
             Artifact(
                 kind="table",
                 name="skills",
-                data={"columns": ["name", "description"], "rows": rows},
+                data={"columns": ["技能", "说明"], "rows": rows},
             )
         ],
     )

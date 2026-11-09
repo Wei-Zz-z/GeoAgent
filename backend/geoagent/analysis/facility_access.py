@@ -12,14 +12,14 @@ if TYPE_CHECKING:
     from .regional_facility_access import RegionalFacilityAccess
 
 import networkx as nx
-from shapely import concave_hull
+from shapely import concave_hull, transform as transform_coordinates
 from pyproj import Transformer
 from shapely.geometry import LineString, Point, mapping, shape
 from shapely.ops import substring, transform, unary_union
 from shapely.strtree import STRtree
 from .community_coverage import reference_points, summarize_communities
 from .district_overlay import district_boundary, intersection_statistics
-from .township_overlay import township_boundaries, township_intersections
+from .township_overlay import township_boundaries, township_intersections, township_uncovered
 from .population_overlay import PopulationOverlay
 from .village_overlay import village_boundaries, village_intersections, village_display_features
 
@@ -42,7 +42,7 @@ class FacilityAccess:
         self.graph = nx.DiGraph() if self.mode == 'driving' else nx.Graph()
         # 同层共享原始顶点才连接；不把平面相交的高架与地面道路直接打通。
         for road in bundle['roads']:
-            geom = transform(self.project, shape(road['geometry']))
+            geom = transform_coordinates(shape(road['geometry']), self.project, interleaved=False)
             lines = list(geom.geoms) if geom.geom_type == 'MultiLineString' else [geom]
             level = str(road['properties'].get('layer', '0'))
             for line in lines:
@@ -65,6 +65,7 @@ class FacilityAccess:
             raise ValueError('试点区域没有可用于步行分析的道路。')
         self.edges = list(dict.fromkeys(tuple(sorted((u, v))) for u, v in self.graph.edges))
         self.segments = [LineString([u[:2], v[:2]]) for u, v in self.edges]
+        self.segment_lengths = [segment.length for segment in self.segments]
         self.tree = STRtree(self.segments)
         nx.freeze(self.graph)
 
@@ -123,7 +124,9 @@ class FacilityAccess:
             parts = []
             if budget >= 0:
                 for i, ((a, b), edge) in enumerate(zip(self.edges, self.segments)):
-                    length = edge.length
+                    if a not in distances and b not in distances and i != index:
+                        continue
+                    length = self.segment_lengths[i]
                     intervals = []
                     left = budget - distances.get(a, math.inf)
                     right = budget - distances.get(b, math.inf)
@@ -153,9 +156,8 @@ class FacilityAccess:
                 rows[-1].update(township_intersections(Point(), townships, township_reference['available']))
                 rows[-1].update(village_intersections(Point(), village_units, village_tree, village_reference['available']))
                 rows[-1].update(population.summarize(Point()))
-                if boundary is not None:
-                    features.append({'type': 'Feature', 'properties': {'kind': 'uncovered', 'minutes': minutes},
-                                     'geometry': mapping(transform(self.unproject, boundary))})
+                _, uncovered_stats = township_uncovered(Point(), townships, township_reference['available'])
+                rows[-1].update(uncovered_stats)
                 continue
             reachable = unary_union(parts)
             # 20米道路走廊仅用于显示，不能解释为整个面内任意位置均可达。
@@ -183,15 +185,12 @@ class FacilityAccess:
             rows[-1].update(township_intersections(coverage, townships, township_reference['available']))
             rows[-1].update(village_intersections(coverage, village_units, village_tree, village_reference['available']))
             rows[-1].update(population.summarize(coverage))
-            if boundary is not None:
-                remaining = boundary.difference(coverage)
-                if not remaining.is_empty:
-                    features.append({'type': 'Feature', 'properties': {'kind': 'uncovered', 'minutes': minutes},
-                                     'geometry': mapping(transform(self.unproject, remaining))})
+            remaining, uncovered_stats = township_uncovered(coverage, townships, township_reference['available'])
+            rows[-1].update(uncovered_stats)
+            if not remaining.is_empty:
+                features.append({'type': 'Feature', 'properties': {'kind': 'uncovered', 'minutes': minutes},
+                                 'geometry': mapping(transform(self.unproject, remaining))})
         features.extend(village_display_features(rows, village_units, village_tree, self.unproject))
-        if boundary is not None:
-            features.append({'type': 'Feature', 'properties': {'kind': 'study_area'},
-                             'geometry': mapping(transform(self.unproject, boundary))})
         features.append({'type': 'Feature', 'properties': {'kind': 'facility', 'name': facility['name']},
                          'geometry': mapping(Point(facility['coordinates']))})
         if access_m > .01:
@@ -218,7 +217,7 @@ class FacilityAccess:
                 'access_distance_m': round(access_m, 2), 'direction': '从设施出发', 'notice': notice,
                 'rows': sorted(rows, key=lambda r: r['minutes']),
                 'geojson': {'type': 'FeatureCollection', 'features': features,
-                            'analysis_type': 'elder_accessibility', 'notice': notice, 'travel_mode': self.mode,
+                            'analysis_type': 'elder_accessibility', 'uncovered_scope': 'intersecting_townships', 'notice': notice, 'travel_mode': self.mode,
                             'coverage_method': 'component_concave_hull', 'coverage_ratio': .25,
                             'community_reference': community_reference,
                             'district_reference': district_reference,

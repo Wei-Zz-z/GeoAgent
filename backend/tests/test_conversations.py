@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from geoagent.memory.session import ConversationSession
-from geoagent.memory.store import ConversationStore
+from geoagent.memory.store import MemoryConversationStore
 from geoagent.server.app import create_app
 
 
@@ -73,27 +73,27 @@ def test_conversations_list_newest_first(client):
     assert ids.index(id_b) < ids.index(id_a)
 
 
-def test_session_restore_loads_persisted_history(tmp_path):
-    store = ConversationStore(tmp_path)
-    cid = store.create(title="续聊", model="qwen3.7-flash")["id"]
-    store.add_message(cid, {"role": "user", "content": "第一问"})
-    store.add_message(cid, {"role": "assistant", "content": "第一答"})
+async def test_session_restore_loads_persisted_history():
+    store = MemoryConversationStore()
+    cid = (await store.create(title="续聊", model="qwen3.7-flash"))["id"]
+    await store.add_message(cid, {"role": "user", "content": "第一问"})
+    await store.add_message(cid, {"role": "assistant", "content": "第一答"})
 
     session = ConversationSession(store=store, conversation_id=cid)
-    session.restore()
+    await session.restore()
 
     assert [m["content"] for m in session.history()] == ["第一问", "第一答"]
 
     # 未绑定 store 时为空操作（子 Agent 等全新会话不受影响）。
     isolated = ConversationSession()
-    isolated.restore()
+    await isolated.restore()
     assert isolated.history() == []
 
 
-def test_session_restore_cleans_orphan_tool_messages(tmp_path):
-    store = ConversationStore(tmp_path)
-    cid = store.create()["id"]
-    store.add_message(
+async def test_session_restore_cleans_orphan_tool_messages():
+    store = MemoryConversationStore()
+    cid = (await store.create())["id"]
+    await store.add_message(
         cid,
         {
             "role": "assistant",
@@ -107,10 +107,10 @@ def test_session_restore_cleans_orphan_tool_messages(tmp_path):
             ],
         },
     )
-    store.add_message(cid, {"role": "tool", "tool_call_id": "ghost", "content": "o"})
+    await store.add_message(cid, {"role": "tool", "tool_call_id": "ghost", "content": "o"})
 
     session = ConversationSession(store=store, conversation_id=cid)
-    session.restore()
+    await session.restore()
 
     roles = [m["role"] for m in session.history()]
     assert roles == ["assistant"]

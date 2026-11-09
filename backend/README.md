@@ -33,7 +33,9 @@
   list_skills / load_skill 技能按需加载（目录注入 system prompt，全文按需读取）、
   上下文压缩（s08 四步管线：大结果转存 / 旧消息归档 / 已读结果占位 / LLM 摘要，
   每次调模型前执行，compact 工具主动压缩，prompt_too_long 补救一次）。
-- **多会话**：会话与消息持久化到 `data/conversations/*.jsonl`（未做登录，dev 模式全局可见）。
+- **多会话**：会话与消息持久化到 PostgreSQL（`geoagent` schema 的 `conversations` +
+  `conversation_messages`），按登录用户归属；入口验证走省域平台 2.0 ticket
+  （`GEOAGENT_AUTH_MODE=ticket`），未开启时为 dev 模式（不校验、会话全局可见）。
 
 ## 快速开始
 
@@ -52,8 +54,18 @@ Microsoft Word（Windows）或 LibreOffice 时同步生成 PDF；可用
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | GET | `/api/health` | 健康检查 |
+| POST | `/api/auth/ticket` | 用省域平台 `sykjzlptv2_ticket` 换登录态（ticket 一次性、2 分钟超时；2 分钟内重复提交复用已签发凭据） |
+| GET | `/api/auth/me` | 当前登录用户（dev 模式返回开发身份；顺带把 Cookie 续到完整有效期） |
+| POST | `/api/auth/logout` | 退出登录（清 Cookie） |
 | GET | `/api/models` | 可用模型列表（含是否已配 key；已内置阿里千问 qwen3.8-27b / qwen3.7-flash / qwen3.7-plus / qwen3.7-max-2026-06-08） |
 | GET | `/api/datasets` | 已登记的期次数据集（一张套合表 = 一期数据，供前端展示/选择期次） |
+| GET | `/api/overlay/options` | 套合表单选项：四个图层说明、年份/期次候选、默认表名 |
+| GET | `/api/overlay/datasets` | 当前已登记期次（套合完成后应立刻出现新期次） |
+| POST | `/api/overlay/build` | 上传图层并启动套合任务（multipart：`hsx`/`qsx` 必填，`yjn`/`hx` 可选；字段 `table_name`/`year`/`round`/`overwrite`/`register`） |
+| GET | `/api/overlay/jobs/{id}` | 套合任务进度与结果（前端轮询） |
+| GET | `/api/overlay/jobs` | 最近套合任务列表 |
+| GET | `/api/overlay/tables` | 套合数据清单：data schema 下的表 + 行数/面积/几何/期次登记，并给出是否具备删除前备份能力 |
+| POST | `/api/overlay/delete` | 删除一期套合数据（`dataset_id`/`table_name`/`confirm`/`backup`）：默认先备份再删表，并摘掉期次登记 |
 | GET | `/api/agents` | 可选智能体目录（sql 土地变化统计问答 / elder_care 养老可达性评估 / chat 通用对话），供会话旁的“智能体”选择框使用 |
 | GET/POST | `/api/conversations` | 会话列表 / 创建会话 |
 | DELETE | `/api/conversations/{id}` | 删除会话（含消息文件） |
@@ -65,6 +77,135 @@ Microsoft Word（Windows）或 LibreOffice 时同步生成 PDF；可用
 会话列表按创建时间倒序返回（最新在前）。新建会话默认为"新会话"标题，
 收到首条用户消息后自动截取消息内容作为标题（最长 20 字，超出加省略号）。
 
+## 入口验证（省域平台 2.0 ticket）
+
+按《省域平台2.0浙政钉用户接入文档2023》接入：平台场景跳转时在 URL 上携带
+`sykjzlptv2_ticket`（可能落在查询串，也可能落在 `#` 之后的片段里），前端取出后调用
+`POST /api/auth/ticket`；后端用 httpx 请求
+`https://kjzl.zrzyt.zj.gov.cn/bev2/api/Ticket/ValidateTicket?ticket=...` 换取用户信息
+（ticket 只能用一次、2 分钟超时），再把用户签成 HttpOnly Cookie（HMAC-SHA256，
+服务端不存会话表），之后所有 `/api` 与 WebSocket 握手都按该 Cookie 鉴权。
+
+- 前端取的参数名默认 `sykjzlptv2_ticket`，可用 Vite 环境变量 `VITE_TICKET_PARAM` 覆盖；
+- 开关：`GEOAGENT_AUTH_MODE=dev`（默认，行为同改造前）| `ticket`（开启入口验证并按用户隔离会话）；
+- `dev` 模式下中间件注入“开发模式”身份，会话归属为 `dev`，现有联调方式与用例不受影响；
+- 同一 ticket 在有效期内重复提交会复用已签发凭据，避免用户刷新页面被判定为票据失效；
+- 登录、失败与退出写入 `data/auth_audit.jsonl`（不记录 ticket 本身）；
+- 会话按登录用户隔离，访问他人会话统一 404；改造前遗留的无主会话仍可见（避免历史数据消失）；
+- 现场自检：`uv run python ../scripts/check_ticket_auth.py` 先看本机到平台的网络连通性，
+  加 `--ticket xxx` 可真实校验一次票据（ticket 一次性，运行即消费）；
+- 已知限制：快报文件下载接口对所有登录用户共享，未按用户隔离。
+
+## 会话存储（PostgreSQL）
+
+会话与消息由 `ConversationStore`（`memory/store.py`）写入 PostgreSQL：默认与业务库同实例，
+可用 `GEOAGENT_CHAT_DSN` 指到独立库；schema 默认 `geoagent`（`GEOAGENT_CHAT_SCHEMA` 可改），
+应用启动时自动建表（幂等）。
+
+| 表 | 字段 | 说明 |
+| --- | --- | --- |
+| `conversations` | `id / title / model / owner_id / owner_name / created_at / updated_at` | 会话元数据；`owner_id` 为省域平台返回的用户 Id（dev 模式为 `dev`） |
+| `conversation_messages` | `conversation_id / role / payload(jsonb) / created_at` | 每条消息一行，`payload` 与旧 JSONL 行等价（含 `tool_calls` / `artifacts`），按自增 id 排序，会话删除时级联清理 |
+
+约束与约定：
+
+- Agent 循环仍是同步内存操作：新增消息先由 `ConversationSession` 暂存，每轮结束（成功或失败）
+  统一 `flush()` 落库，保证 `turn_end` 之后前端能拉到完整历史；
+- 会话按登录用户隔离，访问他人会话统一 404；改造前遗留的无主会话（`owner_id` 为空）仍可见；
+- `GEOAGENT_CHAT_STORE=memory` 改用内存实现（单元测试与未配库的本地联调用，重启即丢失）；
+  未配置任何 DSN 时会退回内存并打印告警，不会让服务起不来；
+- 旧的 `data/conversations/*.jsonl` 已不再读取、也不做迁移，可以直接删除。
+
+## MCP 对外接口（Streamable HTTP）
+
+其他前端/服务可以不改协议、直接用 MCP 调用本系统的问答与快报能力，端点挂在同一个后端上
+（**给对方看的完整对接文档见 [`docs/MCP对接说明.md`](../docs/MCP对接说明.md)**）：
+`POST https://<域名>/mcp/`（stateless_http=True，不需要保持 MCP 会话）。
+
+配置：
+
+```bash
+# 令牌必须是 <令牌>:<调用方名> 形式，逗号分隔；由 MCP 层校验，未配置时 /mcp 一律拒绝
+GEOAGENT_MCP_TOKENS=abc123:门户A
+# 快报下载链接有效期（秒，默认 1 小时）
+GEOAGENT_MCP_DOWNLOAD_TTL_S=3600
+# 对外基地址：配上以后返回的下载链接是绝对地址
+GEOAGENT_PUBLIC_BASE_URL=https://geoagent.example.gov.cn
+```
+
+| 工具 | 参数 | 返回 |
+| --- | --- | --- |
+| `ask` | `question`（必填）、`history`（调用方维护的多轮上下文）、`dataset_id`、`agent_id`、`include_data` | `answer`（最终结论）、`route`、`dataset_id`、`is_error`；`include_data=true` 时附 `artifacts` |
+| `generate_briefing` | `dataset_id`（留空用默认期次） | `period`、`summary`、`files[].url`（签名下载链接）、`expires_at` |
+| `list_datasets` | 无 | `default_id`、`datasets`、可用 `agents` |
+
+约定：
+
+- **不维护用户会话**：`ask` 用不落库的内存上下文执行，多轮上下文由调用方每轮回传；
+  这条链路没有进程内状态，服务端可以多实例部署；
+- **只记审计**：每次 `ask` 往 `geoagent.mcp_calls` 写一条「提问 + 最终回复」
+  （调用方、`X-GeoAgent-User` 透传的最终用户、期次、路由、耗时、是否成功），不存过程消息；
+- **不返回思考过程**：只回最终结论文本，模型的工具轨迹不外发；
+- **快报文件**：`files[].url` 是带过期时间的签名链接，浏览器直接点开即可下载；
+  主令牌只放调用方后端，不要下发给浏览器；
+- **鉴权各管各的**：`/mcp` 的令牌由 MCP 层校验（未带或带错返回 401 + `WWW-Authenticate`，
+  未配置令牌时一律拒绝），web 登录中间件只管 `/api` 的 Cookie 会话；MCP 令牌只对 `/mcp` 有效；
+- 快报下载接口自己校验凭据：登录 Cookie 或签名链接，中间件只放行不代判；
+- nginx 反代 `/mcp` 时记得 `proxy_buffering off` 与较大的 `proxy_read_timeout`。
+
+联调与自检：
+
+```bash
+# 一条命令查完：存活 / 401 鉴权 / 令牌不越权 / 握手 / 工具发现 / 期次 / 快报+签名下载 / 真实问答
+cd backend && uv run python ../scripts/check_mcp.py --url http://127.0.0.1:8000/mcp/
+# 不想生成文件、不想调模型时
+cd backend && uv run python ../scripts/check_mcp.py --skip-ask --skip-briefing
+# 图形化排查
+npx @modelcontextprotocol/inspector   # 端点填 /mcp/，请求头带 Authorization: Bearer <令牌>
+```
+
+`check_mcp.py` 默认从 `GEOAGENT_MCP_TOKENS`（或 `backend/.env`）取第一个令牌，
+逐项打印 [通过]/[失败]，全部通过时退出码 0，可直接用于部署后的验收与 CI。
+
+已知限制：本机 stdio MCP（`geoagent.mcp_server`）通过进程内 HTTP 调用本服务的 `/api`，
+在 `GEOAGENT_AUTH_MODE=ticket` 下会因没有登录态而失败；需要继续用它时保持 dev 模式，
+或把它的工具改为直接调用内部函数。
+
+## 套合入库（前后时相 → 一期套合表）
+
+入口：对话窗口上方的「套合入库」按钮（大弹窗，不跳页；`/?view=overlay` 仍可直接访问），命令行入口 `uv run python ../scripts/overlay_cli.py`。
+上传后时相（变化监测图斑）、前时相（变更地类图斑）与可选的永久基本农田、生态保护红线，
+系统在 PostGIS 内按后时相边界切分前时相碎片、挂接母斑属性、“相交即算”标记永农/红线、
+按碎片几何重算面积，几何统一转 EPSG:4490 写入 `data."<表名>"`（结构与现有两期一致，含
+主键、索引、注释与更新时间触发器），并把这一期登记进 `skills/qa-library/assets/datasets.json`。
+
+- 表名由用户填写；年份与期次用下拉框选择，默认表名 = `年份_期次_change_landuse`。
+- 同名表默认拒绝写入，勾选“覆盖同名表”才会 DROP 重建；套合失败会回滚目标表并清理暂存表。
+- 未上传永农/红线时，`SFYN`/`SFHX` 统一记为“否”，并在结果里给出提示。
+- 输入支持 Shapefile 套装（.shp/.shx/.dbf/.prj/.cpg 一次选中）、Shapefile ZIP 或 GeoJSON；
+  `.prj` 无法识别 EPSG 时按 CGCS2000 3 度带 40 带（4528）绑定，属性表编码按
+  UTF-8 → GBK → GB18030 逐个尝试。
+  只缺 `.shx` 时自动重建空间索引；一份 ZIP 内含多套 Shapefile 时按图层名（HSX / QSX / 永农 / 红线）自动匹配，
+  四个位置可以上传同一份 ZIP。漏选 `.dbf`/`.prj` 会在提交时直接提示缺哪些文件，不再抛 GDAL 原文错误。
+- 套合数据管理：弹窗底部列出 data schema 下的套合表，可删除不再需要的期次。删除必须把表名
+  原样输入确认；默认先 `pg_dump` 备份到 `<data_dir>/overlay_backups`（可用 `GEOAGENT_PG_DUMP`
+  指定 pg_dump 路径），备份失败即中止；删除后同步摘掉 `datasets.json` 登记并刷新白名单与
+  前端"数据表"下拉框。同一时间有套合任务在跑时不允许删除。- 套合是重任务（全量数据分钟级），接口只负责起任务，进度由 `GET /api/overlay/jobs/{id}` 轮询；
+  同一时间只允许一个套合任务。
+- 写库使用独立写入句柄（需要建表权限），问答链路的只读受控网关与白名单不受影响；
+  通过页面套合时，运行中的进程会自动刷新期次表与白名单，无需重启；用命令行脚本登记后需重启后端才生效。
+## 卡片文案（工具名 / 卡片标题 / 表格字段）
+
+- 工具卡片名：英文调用名 → 中文名映射在 `frontend/src/toolLabels.js`，新工具必须登记
+  （`backend/tests/test_tool_labels.py` 会校验）。
+- 卡片标题：后端 `artifact.name` 是给程序用的英文标识符（报告链路按它取数），
+  展示走 `frontend/src/artifactLabels.js` 的 `artifactLabel(name, kind)`：含汉字的名称原样使用，
+  已登记的英文标识符翻译为中文，未登记的按卡片类型兜底（保证卡片上不出现英文）。
+- 表格字段名：工具产出的 table artifact 列名一律中文（面积列走 `tools/units.py` 换算成亩）；
+  自由 SQL 结果由 `tools/labels.py` 的 `humanize_table` 翻译——库内字段走 `COLUMN_LABELS`，
+  模型自写的英文别名（`cnt` / `area_mu` / `tblx_name` 等）走 `SQL_ALIAS_LABELS`，
+  SQLAgent 提示词第 4 节第 10 条也要求别名用中文。
+- 提示：翻译发生在查询时，因此改动前生成的历史消息仍保留当时的表头；重新提问即为中文表头。
 ## WebSocket 事件协议
 
 前端唯一依赖此协议渲染对话过程（前后端解耦的契约，新增事件需在此登记）：
@@ -104,6 +245,12 @@ npm install
 npm run dev          # 打开 http://localhost:5173
 ```
 
+前端 store 回归（不需要后端，`uv run pytest` 也会跑这条）：
+
+```bash
+cd frontend
+node --import ./scripts/esm-register.mjs ./scripts/check-chat-store.mjs
+```
 端到端冒烟（需前后端已启动、已配置千问 key）：
 
 ```bash
@@ -208,7 +355,11 @@ SQL 中需按 `describe_table` 返回的原文加双引号，否则 PostgreSQL �
 图斑边界 GeoJSON；几何取自主表 `geom`，输出前统一 `ST_Transform(geom, 4326)`，前端以
 EPSG:4326 → EPSG:3857 叠加底图（OSM）渲染。几何当前只有 2026 年第二期有（第一期 `geom`
 全为空），没有几何的期次只给明细并在回答里说明无法出图；结论只能是“疑似”，是否违法需叠加
-农转用/供地等审批数据。预警图层随 GeoJSON 下发 `style`（红色描边 + 半透明红填充），前端按它渲染红色预警图斑。
+农转用/供地等审批数据。预警图层随 GeoJSON 下发 `style`（红色描边 + 半透明红填充），前端按它渲染红色预警图斑。有几何时地图与明细表在同一个 artifact 里（`data.linked_table`，`feature_key=objectid` ↔ `row_key=主键`）：点表格行会缩放到对应图斑并红色高亮（再点取消），点图斑也会反选表格行；没有几何的期次退化成纯明细表。底图为天地图 WMTS（矢量底图 `vec_c` + 中文注记 `cva_c`，配置见 `frontend/src/mapConfig.js`，可用 `VITE_TIANDITU_TOKEN` 覆盖内置密钥）。
+**坐标系统一用经纬度（EPSG:4326）**：天地图 `c` 矩阵集实测是 EPSG:4490 经纬度网格
+（能力文档 TopLeftCorner=90/-180、第 1 级 2×1 瓦片），地图 View 与 GeoJSON 都按 4326 处理、
+不做重投影，瓦片分辨率取 `360/256/2^z`；按 Web Mercator 建网格会取到空白瓦片、底图与数据对不上。
+瓦片加载失败时仅在控制台告警（底图只用天地图，不切换到其它底图服务）。
 问题里出现具体区县（与当期表 `XMC` 精确匹配，如“缙云县”）时，预匹配会把 `county` 下钻给
 预警工具（区县清单按表名缓存，泛称如“每个县/哪些县”不会误判）；若命中的条目表达不了这个
 筛选，则不套用整表口径、直接转自由 SQL，避免按全库口径误答。
@@ -248,7 +399,7 @@ backend/.venv/Scripts/python.exe scripts/eval_sql_agent.py               # 跑 L
 - 还原不了就剥掉标记只留正文；整条回复只有标记时纠正模型一次，仍失败则给出明确说明，
   绝不让标记外发或落库。
 
-历史数据可用脚本清洗（写入前自动备份 `*.jsonl.bak`）：
+历史数据可用脚本清洗（数据库版：扫描 `conversation_messages`，写入前把受影响行备份成 JSONL）：
 
 ```bash
 backend/.venv/Scripts/python.exe scripts/scrub_conversation_leaks.py          # 预览

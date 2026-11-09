@@ -65,7 +65,10 @@ async def generate_briefing(ctx: Any) -> ToolResult:
     reports_dir = getattr(ctx, "reports_dir", None)
     if reports_dir is None:
         base_home = Path(os.getenv("LOCALAPPDATA", str(Path.home())))
-        reports_dir = Path(os.getenv("GEOAGENT_REPORTS_DIR", str(base_home / "GeoAgent" / "reports")))
+        # 留空视为未配置：Path("") 会变成当前目录，快报会落进仓库。
+        reports_dir = Path(
+            os.getenv("GEOAGENT_REPORTS_DIR", "").strip() or str(base_home / "GeoAgent" / "reports")
+        )
     label_part = period_label or "全库"
     out_path = reports_dir / f"地类变化监测快报_{label_part}_{uuid4().hex[:8]}.docx"
     try:

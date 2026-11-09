@@ -94,7 +94,8 @@ async def test_warning_tool_returns_geojson_and_table():
 
     assert result.is_error is False
     kinds = [artifact.kind for artifact in result.artifacts]
-    assert kinds == ["geojson", "table"]
+    # 有几何时只出一个 artifact：地图 + 关联明细表（行点击可定位高亮）
+    assert kinds == ["geojson"]
 
     geo = result.artifacts[0]
     # 预警图层带红色样式提示（前端按它渲染）
@@ -103,8 +104,12 @@ async def test_warning_tool_returns_geojson_and_table():
     assert "rgba(217, 48, 37" in geo.data["style"]["fill"]
     assert "永久基本农田" in geo.name and "2026年第二期" in geo.name
 
-    detail = result.artifacts[1].data
+    detail = geo.data["linked_table"]
     assert detail["columns"] == ["主键", "行政区", "图斑类型", "原地类", "面积(亩)", "涉及永农", "涉及红线"]
+    # 表格行靠 row_key 取主键，GeoJSON 要素靠 feature_key 取属性，前端据此定位
+    assert detail["row_key"] == "主键"
+    assert detail["feature_key"] == "objectid"
+    assert detail["rows"][0]["主键"] == 6031
     # TBLX 编码转中文，面积由平方米换算为亩
     assert detail["rows"][0]["图斑类型"] == "动土"
     assert detail["rows"][0]["面积(亩)"] == 399.27

@@ -1,0 +1,27 @@
+[Unit]
+Description=GeoAgent backend (FastAPI + uvicorn)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=geoagent
+Group=geoagent
+WorkingDirectory=/opt/geoagent/app/backend
+Environment=UV_PYTHON_INSTALL_DIR=/opt/geoagent/runtime/uv-python
+Environment=UV_CACHE_DIR=/opt/geoagent/runtime/uv-cache
+Environment=UV_PYTHON_DOWNLOADS=never
+# 单进程运行：套合任务进度与模板工作流保存在进程内存中，不要加 --workers
+ExecStart=/opt/geoagent/app/backend/.venv/bin/python -m uvicorn geoagent.server.app:app --host 127.0.0.1 --port 8000 --env-file /etc/geoagent/geoagent.env
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# data（密钥/审计/知识库索引）、reports（快报输出）、skills（期次登记）必须可写
+ReadWritePaths=/opt/geoagent/data /opt/geoagent/reports /opt/geoagent/app/skills
+
+[Install]
+WantedBy=multi-user.target

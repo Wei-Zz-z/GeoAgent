@@ -46,6 +46,7 @@ defineEmits(['select-time', 'select-boundary'])
 
 <style scoped>
 .access-summary { display: flex; flex-direction: column; gap: 12px; min-width: 0; padding: 16px; max-height: 730px; overflow-y: auto; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; color: #334155; }
+.access-summary > * { flex-shrink: 0; }
 .summary-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
 .summary-heading strong { font-size: 24px; color: #0f172a; }
 small { font-size: 11px; font-weight: 400; }

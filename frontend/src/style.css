@@ -1578,3 +1578,138 @@ button {
   line-height: 1.5;
   color: var(--text-3);
 }
+
+/* 套合入库工作台 */
+.overlay-workspace { max-width: 960px; margin: 0 auto; padding: 20px 24px 60px; }
+.overlay-desc { color: #475569; line-height: 1.7; }
+.overlay-layers { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; margin: 16px 0; }
+.overlay-layer { border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 14px; background: #f8fafc; }
+.overlay-layer-head { display: flex; align-items: center; justify-content: space-between; }
+.overlay-required { font-size: 12px; color: #b91c1c; border: 1px solid #fecaca; background: #fef2f2; border-radius: 999px; padding: 1px 8px; }
+.overlay-hint { margin: 6px 0 8px; font-size: 12px; color: #64748b; line-height: 1.6; }
+.overlay-files { margin: 8px 0 0; font-size: 12px; color: #334155; word-break: break-all; }
+.overlay-meta { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin: 18px 0 8px; }
+.overlay-meta label { display: flex; align-items: center; gap: 6px; }
+.overlay-meta select, .overlay-meta input[type="text"], .overlay-table input { padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 6px; }
+.overlay-table input { width: 280px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.overlay-check { font-size: 13px; color: #475569; }
+.overlay-note { font-size: 13px; color: #475569; margin: 4px 0; }
+.overlay-start { margin-top: 12px; padding: 8px 20px; border: none; border-radius: 8px; background: #2563eb; color: #fff; font-size: 14px; cursor: pointer; }
+.overlay-start:disabled { background: #94a3b8; cursor: not-allowed; }
+.overlay-progress { color: #1d4ed8; font-size: 13px; }
+.overlay-error { color: #b91c1c; font-size: 13px; }
+.overlay-result { margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 16px; }
+.overlay-summary { border-collapse: collapse; width: 100%; margin: 10px 0 16px; font-size: 13px; }
+.overlay-summary th, .overlay-summary td { border: 1px solid #e2e8f0; padding: 6px 10px; text-align: left; vertical-align: top; }
+.overlay-summary thead th { background: #f1f5f9; }
+.overlay-warnings { background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 10px 14px; font-size: 13px; }
+
+/* 会话窗口上方的工作台入口按钮 */
+.workspace-bar { display: flex; flex-wrap: wrap; gap: 10px; padding: 10px 24px 0; }
+.workspace-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 8px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: var(--bg-panel, #fff);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+.workspace-btn:hover:not(:disabled) { border-color: #bfdbfe; transform: translateY(-1px); box-shadow: 0 8px 20px rgba(37, 99, 235, .14); }
+.workspace-btn:active:not(:disabled) { transform: translateY(0); }
+.workspace-btn:disabled { opacity: .55; cursor: not-allowed; }
+.workspace-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; color: #fff; flex: none; }
+.workspace-btn.county .workspace-icon { background: linear-gradient(135deg, #2563eb, #38bdf8); }
+.workspace-btn.overlay .workspace-icon { background: linear-gradient(135deg, #0f766e, #2dd4bf); }
+.workspace-text { display: flex; flex-direction: column; line-height: 1.25; }
+.workspace-text strong { font-size: 13px; font-weight: 600; color: #0f172a; }
+.workspace-text small { font-size: 11px; color: #64748b; }
+
+/* 大弹窗 */
+.modal-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, .45);
+  backdrop-filter: blur(2px);
+}
+.modal-panel {
+  display: flex;
+  flex-direction: column;
+  max-width: 96vw;
+  min-height: 60vh;
+  max-height: 90vh;
+  border-radius: 16px;
+  background: var(--bg-panel, #fff);
+  box-shadow: 0 30px 80px rgba(15, 23, 42, .35);
+  overflow: hidden;
+}
+.modal-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e2e8f0;
+  background: var(--bg-panel, #fff);
+}
+.modal-title { margin: 0; font-size: 16px; font-weight: 600; }
+.modal-sub { margin: 4px 0 0; font-size: 12px; line-height: 1.5; color: #64748b; }
+.modal-close { flex: none; }
+.modal-body { flex: 1; overflow: auto; padding: 18px 20px 24px; background: var(--bg-page, #f8fafc); }
+
+/* 工作台在弹窗内嵌时去掉自身页头与留白 */
+.county-workspace { width: 100%; overflow: auto; padding: 16px; }
+.county-workspace.is-embedded { padding: 0; }
+.overlay-workspace.is-embedded { max-width: none; margin: 0; padding: 0; }
+
+/* 套合数据管理（列出 / 删除） */
+.overlay-manager { margin-top: 28px; border-top: 1px solid #e2e8f0; padding-top: 18px; }
+.overlay-manager-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.overlay-manager-head h3 { margin: 0; font-size: 15px; }
+.overlay-manager-actions { display: flex; align-items: center; gap: 10px; }
+.overlay-warn { font-size: 12px; color: #b45309; }
+.overlay-ok { margin-top: 10px; font-size: 13px; color: #047857; word-break: break-all; }
+.overlay-muted { color: #94a3b8; }
+.overlay-tag { margin-left: 8px; font-size: 11px; color: #1d4ed8; border: 1px solid #bfdbfe; background: #eff6ff; border-radius: 999px; padding: 1px 8px; }
+.overlay-mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }
+.overlay-confirm-row td { background: #fef2f2; color: #7f1d1d; line-height: 2; }
+.overlay-confirm-input { width: 220px; padding: 4px 8px; border: 1px solid #fca5a5; border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.ghost-btn { padding: 4px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #334155; font-size: 13px; cursor: pointer; }
+.ghost-btn:hover:not(:disabled) { border-color: #94a3b8; background: #f8fafc; }
+.ghost-btn:disabled { opacity: .55; cursor: not-allowed; }
+.danger-btn { padding: 4px 12px; border: 1px solid #fecaca; border-radius: 8px; background: #fef2f2; color: #b91c1c; font-size: 13px; cursor: pointer; }
+.danger-btn:hover:not(:disabled) { background: #fee2e2; border-color: #f87171; }
+.danger-btn:disabled { opacity: .55; cursor: not-allowed; }
+
+/* 地图 artifact 内嵌的关联明细表：点行定位并高亮对应图斑 */
+.artifact-hint {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.linked-table {
+  max-height: 260px;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+}
+
+.linked-table .artifact-table tbody tr {
+  cursor: pointer;
+}
+
+.linked-table .artifact-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+.artifact-table tbody tr.row-active {
+  background: rgba(217, 48, 37, 0.12);
+}

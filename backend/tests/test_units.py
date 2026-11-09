@@ -48,9 +48,20 @@ def test_humanize_table_converts_area_to_mu():
     columns = ["XMC", "MJ", "n"]
     rows = [{"XMC": "庆元县", "MJ": 666.6667, "n": 3}]
     labels, out_rows = humanize_table(columns, rows)
-    assert labels == ["县级行政区名称", "面积(亩)", "n"]
+    # 自由 SQL 的英文别名也翻成中文（n/cnt → 数量）
+    assert labels == ["县级行政区名称", "面积(亩)", "数量"]
     assert out_rows[0]["面积(亩)"] == 1.0
-    assert out_rows[0]["n"] == 3
+    assert out_rows[0]["数量"] == 3
+
+
+def test_humanize_table_translates_free_sql_aliases():
+    """模型自由 SQL 常写英文别名：展示层翻成中文，且已是亩的列不再换算。"""
+    columns = ["cnt", "area_mu", "tblx_name", "extra_col"]
+    rows = [{"cnt": 12, "area_mu": 34.5, "tblx_name": "动土", "extra_col": "keep"}]
+    labels, out_rows = humanize_table(columns, rows)
+    assert labels == ["数量", "面积(亩)", "图斑类型名称", "extra_col"]
+    assert out_rows[0]["面积(亩)"] == 34.5
+    assert out_rows[0]["extra_col"] == "keep"
 
 
 def test_humanize_table_keeps_duplicate_area_columns_distinct():
@@ -96,7 +107,8 @@ def test_datasets_asset_registers_both_periods():
 
     registry = default_registry()
     ids = [period.id for period in registry.periods]
-    assert ids == ["2026_1", "2026_2"]
+    # 套合功能支持运行时登记新期次，这里只校验两期基础数据仍在且排在最前。
+    assert ids[:2] == ["2026_1", "2026_2"]
     assert registry.default is not None and registry.default.id == "2026_1"
 
     second = find_period(registry, "2026年第二期耕地有多少")

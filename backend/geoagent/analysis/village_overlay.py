@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from pyproj import Transformer
-from shapely import make_valid
+from shapely import make_valid, transform as transform_coordinates
 from shapely.geometry import mapping, shape
 from shapely.ops import transform
 from shapely.strtree import STRtree
@@ -32,7 +32,7 @@ def _load(path: str, modified_ns: int, metric_crs: str) -> tuple[dict, list, STR
     units, geometries = [], []
     repaired = 0
     for feature in data['features']:
-        geom = transform(project, shape(feature['geometry']))
+        geom = transform_coordinates(shape(feature['geometry']), project, interleaved=False)
         if not geom.is_valid:
             geom = make_valid(geom)
             repaired += 1

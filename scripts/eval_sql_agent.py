@@ -34,7 +34,7 @@ from geoagent.core.events import Event  # noqa: E402
 from geoagent.core.llm import LLMService  # noqa: E402
 from geoagent.memory.memory import NoopMemory  # noqa: E402
 from geoagent.memory.session import ConversationSession  # noqa: E402
-from geoagent.memory.store import ConversationStore  # noqa: E402
+from geoagent.memory.store import MemoryConversationStore  # noqa: E402
 from geoagent.skills import SkillLoader  # noqa: E402
 from geoagent.tools.pg import PgGateway  # noqa: E402
 
@@ -184,8 +184,8 @@ async def evaluate_case(
         return report
 
     tmp = Path(tempfile.mkdtemp(prefix="geoagent_eval_"))
-    store = ConversationStore(tmp)
-    conv = store.create(title="eval", model=model)
+    store = MemoryConversationStore()
+    conv = await store.create(title="eval", model=model)
     session = ConversationSession(store=store, conversation_id=conv["id"])
     collector = EventCollector()
     skills = SkillLoader(settings.skills_dir)

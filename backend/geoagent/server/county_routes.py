@@ -8,13 +8,14 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from starlette.datastructures import UploadFile
 
-from ..analysis.county_charts import MAX_VECTOR_ZIP, build_county_chart_map
-
 router = APIRouter(prefix="/api/county-charts", tags=["county-charts"])
 
 
 @router.post("/build")
 async def build_map(request: Request) -> dict[str, Any]:
+    # 延迟导入：区县图表依赖 shapely/pyogrio，未用到时不必在启动阶段加载
+    from ..analysis.county_charts import MAX_VECTOR_ZIP, build_county_chart_map
+
     multipart = request.headers.get("content-type", "").startswith("multipart/form-data")
     limit = 2 * MAX_VECTOR_ZIP + 65536 if multipart else MAX_VECTOR_ZIP
     content = bytearray()

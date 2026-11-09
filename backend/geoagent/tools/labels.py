@@ -50,6 +50,41 @@ COLUMN_LABELS: dict[str, str] = {
 }
 
 
+# 自由 SQL 里模型常用的英文别名（AS cnt / AS area_mu / AS tblx_name…）：前端卡片直接展示列名，
+# 这里补一层中文翻译；未命中的列名原样保留（保持"不猜"的原则）。
+SQL_ALIAS_LABELS: dict[str, str] = {
+    "cnt": "数量",
+    "count": "数量",
+    "n": "数量",
+    "num": "数量",
+    "total": "合计",
+    "total_n": "合计数量",
+    "sum": "合计",
+    "avg": "平均",
+    "average": "平均",
+    "max": "最大值",
+    "min": "最小值",
+    "pct": "占比",
+    "percent": "占比",
+    "ratio": "占比",
+    "area_mu": "面积(亩)",
+    "tblx_name": "图斑类型名称",
+    "dlbm_name": "地类编码名称",
+    "dlmc_name": "地类名称",
+    "dlmc": "地类名称",
+    "xzqdm": "县级行政区代码",
+    "xzqmc": "县级行政区名称",
+    "xmc": "县级行政区名称",
+    "jcbh": "图斑编号",
+    "year": "年份",
+    "month": "月份",
+    "name": "名称",
+    "code": "编码",
+    "category": "类别",
+    "county": "区县",
+    "id": "编号",
+}
+
 TBLX_LABELS: dict[str, str] = {
     "20": "建/构筑物",
     "YH": "硬化",
@@ -107,7 +142,12 @@ def humanize_table(
         if is_area_column(col):
             label = area_header(col)
         else:
-            label = COLUMN_LABELS.get(col, col)
+            label = (
+                COLUMN_LABELS.get(col)
+                or COLUMN_LABELS.get(str(col).upper())
+                or SQL_ALIAS_LABELS.get(str(col).strip().lower())
+                or col
+            )
         if label in used:
             label = f"{label}[{col}]"
         used.add(label)

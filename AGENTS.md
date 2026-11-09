@@ -13,7 +13,8 @@ GeoAgent 是一个**通过自然语言对话完成地理空间分析与业务问
   而不是打开一个整页底图应用。
 - 当前主线：围绕 2026 年第一期地类变化图斑表做**前后变化统计问答**（如"耕地转为
   建设用地的面积是多少"）与 **Word 快报生成**。
-- 支持多用户、多会话（登录/权限暂未实现，当前为 dev 模式，所有会话全局可见）。
+- 支持多用户、多会话：已接入省域平台 2.0 ticket 入口验证（`GEOAGENT_AUTH_MODE=ticket`）
+  并按登录用户隔离会话；未开启时仍是 dev 模式（不校验、会话全局可见），权限分级待做。
 
 ### 核心能力链路（按依赖关系）
 
@@ -33,7 +34,8 @@ GeoAgent 是一个**通过自然语言对话完成地理空间分析与业务问
 | 数据与分析引擎 | PostgreSQL/PostGIS（土地变化检测库，当前主线）；PyQGIS（计划，worker 进程隔离） | PostGIS 受控查询层已接入（tools/pg.py） |
 | LLM | OpenAI 兼容接口，内置 qwen3.8-27b / qwen3.7-flash / qwen3.7-plus / qwen3.7-max-2026-06-08（默认 qwen3.8-27b） | 已支持多模型切换 |
 | 前端 | Vue3 + Vite + OpenLayers | 骨架已搭建（会话列表 + 会话窗口 + 流式工具卡片 + 内嵌地图） |
-| 存储 | 会话：JSONL（当前）→ SQLite/PostGIS（规划）；业务数据：PostgreSQL | JSONL 已可用 |
+| 存储 | 会话与消息：PostgreSQL（`geoagent` schema，默认与业务库同实例，可用 `GEOAGENT_CHAT_DSN` 分库）；
+业务数据：PostgreSQL | 已入库 |
 
 ## 2. 目前做到什么程度（2026-09-04）
 
@@ -53,7 +55,8 @@ GeoAgent 是一个**通过自然语言对话完成地理空间分析与业务问
 - **上下文压缩与持久化**（`memory/`）：参考 learn-claude-code s08 的四步压缩管线
   （大工具结果转存 → 旧消息归档 → 已读结果占位 → LLM 事实摘要），每次调用模型前执行，
   API 报 prompt_too_long 时补救一次，`compact` 工具可主动压缩；
-  孤儿 tool 消息清理；JSONL 会话存储；长期记忆接口占位（`MemoryProvider`）。
+  孤儿 tool 消息清理；PostgreSQL 会话存储（`geoagent` schema，Agent 循环内存暂存、每轮 flush 落库）；
+  长期记忆接口占位（`MemoryProvider`）。
 - **Agent 内置机制**（`core/agent.py` + `tools/builtin.py`）：所有 Agent 默认携带
   `task` 子 Agent 委派、`list_skills` / `load_skill` 技能按需加载、`compact`
   主动压缩工具；
@@ -92,6 +95,9 @@ GeoAgent 是一个**通过自然语言对话完成地理空间分析与业务问
   叠加底图渲染）；问题库 19 号条目（疑似占用永农）已改为直接调用该工具，并新增
   `redline_construction_polygons` 条目；结论只能是“疑似”，是否违法需叠加审批数据；
   几何只有 2026 年第二期有（第一期 `geom` 全为空），无几何的期次只给明细并说明无法出图。
+  **地图与表格联动**：有几何时只出一个 artifact，GeoJSON 上挂 `data.linked_table`
+  （`feature_key=objectid` ↔ `row_key=主键`）；前端 `ArtifactView.vue` 在地图下方渲染该表，
+  **点表格行会缩放到对应图斑并红色高亮**（再点一次取消），点图斑也会反选表格行。
 - **期次数据集与指标预匹配**（`datasets.py` + `prematch.py`）：一张套合表 = 一期数据，
   期次登记在 `skills/qa-library/assets/datasets.json`（`{table}` 占位符由执行前绑定，
   换期只改资产）；问答链路先解析期次、再按指标匹配标准问题，命中即确定性执行
@@ -111,6 +117,23 @@ GeoAgent 是一个**通过自然语言对话完成地理空间分析与业务问
   同义与口语问法并入条目 aliases（不新增 keywords：关键词按命中比例计分，新增会稀释既有命中；条目 37→41，新增转换活跃度、退耕还林、
   两山转化、总面积与净变化口径解释 4 条）；歧义与对抗问法只登记期望行为、不并入别名，
   用于检验回答是否写明口径、是否拒绝编造；回归用例见 `backend/tests/test_question_variants.py`。
+- **套合入库（前后时相切分 → 一期套合表）**（`overlay/` + `server/overlay_routes.py` +
+  前端对话窗口上方的「套合入库」按钮，大弹窗承载、不跳页；`/?view=overlay` 仍可直接访问）：上传后时相（变化监测图斑）、前时相（变更地类图斑）与可选的
+  永久基本农田、生态保护红线，在 PostGIS 内按后时相边界切分前时相碎片、挂接母斑属性、
+  “相交即算”标记永农/红线、重算面积（平方米），几何统一转 EPSG:4490 后写入
+  `data."<用户指定表名>"`（表结构、索引、注释、更新时间触发器与现有两期完全一致），
+  并自动把这一期登记进 `datasets.json`，前端“数据表”选择框与问答/快报链路随即可用
+  （走页面时运行中的进程会自动刷新白名单，命令行登记后需重启后端）。表名由用户填写，
+  年份与期次用下拉框选择，
+  默认表名 = `年份_期次_change_landuse`。已实测：抽稀版四图层约 9 秒完成，27,722 行 /
+  90 个县，行数、各县分布、图斑类型与地类分布与现有套合表完全一致，红线标记 1332 行一致；
+  全量数据预计分钟级。命令行入口 `scripts/overlay_cli.py` 可离线跑同一套流程。
+  **套合数据管理**：套合弹窗内列出 `data` schema 下的全部套合表（期次、行数、面积、几何覆盖、
+  创建时间），可删除不再需要的期次——删除前必须把表名原样输入确认，默认先用 `pg_dump` 备份到
+  `<data_dir>/overlay_backups`（备份失败即中止，不出现"备份没成功但表已删"），删表后同步摘掉
+  `datasets.json` 登记并刷新运行时白名单与前端"数据表"下拉框。  源数据的三个坑已在 `overlay/layers.py` 兜住：`.prj` 无法自动识别 EPSG（按 CGCS2000
+  3 度带 40 带即 4528 绑定）、存在未闭合环（OGR 容错 + 库内 `ST_MakeValid`）、
+  `.cpg` 声明 UTF-8 实为 GBK（编码候选逐个尝试）。
 - **LLM 层稳定性**（`core/llm.py`）：流式工具调用按 index/id 分槽、名称去重，修复
   工具名粘连（run_sqlrun_sql）问题；流式正文统一切成小段转发，上游不支持流式时
   回退一次性补全并按小段回放，保证前端逐字追加效果；Agent 空回复自动重试一次。
@@ -135,10 +158,52 @@ GeoAgent 是一个**通过自然语言对话完成地理空间分析与业务问
   共享分析核心（数据集注册、1km 网格需求、步行路网、E2SFCA 与供需匹配），
   场景 Agent 已接入路由目标 `elder_care`；路网由脚本从 OSM PBF 构建，
   无路网时自动回退到直线距离估计并在结果中标注。
+  **可整体关闭**：`GEOAGENT_ELDER_CARE=0` 时启动阶段不再导入 `analysis/` 的重依赖
+  （geopandas / pandas / networkx / shapely），`/api/agents`、路由枚举与前端选择框
+  同步隐藏该场景，选到它时返回“未启用”提示；部署机上按需开启——这套分析栈常驻
+  会把内存抬高一个量级（路网图按 networkx 建图后不释放）。
+- **入口验证与用户体系（省域平台 2.0 ticket）**（`auth/` + `server/auth_routes.py` +
+  前端 `src/auth.js` + `components/LoginGate.vue`）：按《省域平台2.0浙政钉用户接入文档2023》，
+  平台场景跳转时在 URL 上携带 `sykjzlptv2_ticket`（可能落在查询串，也可能落在 `#` 之后的片段里，
+  后端收不到片段，所以由前端取参数）；前端把 ticket 交给 `POST /api/auth/ticket`，
+  后端用 httpx 调 `GET /bev2/api/Ticket/ValidateTicket?ticket=...` 换用户信息（ticket 一次性、
+  2 分钟超时，成功取 `result`，失败透传 `message`），随后把用户签成自包含的 HttpOnly Cookie
+  （HMAC-SHA256，服务端不存会话表，重启不掉线）；此后所有 `/api`（含 WebSocket 握手）按该 Cookie 鉴权，
+  未登录返回 401、WS 以 4401 关闭。同一 ticket 在 2 分钟内重复提交复用已签发凭据，配合前端
+  `history.replaceState` 抹掉地址栏上的 ticket，避免刷新页面被“ticket 无效或超时”踢出去；
+  登录/失败/退出写 `data/auth_audit.jsonl` 审计（不记录 ticket 本身）。
+  **会话按用户隔离**：`ConversationStore` 增加 `owner_id`/`owner_name`，列表、读写、WS 都按登录用户过滤，
+  访问他人会话一律 404（不暴露其是否存在）；改造前遗留的无主会话（`owner_id` 为空）仍对登录用户可见，
+  避免升级后历史会话消失。开关 `GEOAGENT_AUTH_MODE=dev|ticket` 默认 dev，现有联调与用例行为不变。
+  已知限制：快报文件 `/api/files/reports/{文件名}` 目前对所有登录用户共享，未按用户隔离。
+
+- **MCP 对外接口（Streamable HTTP，供其他前端/服务调用）**（`mcp_http.py` + `stateless.py` +
+  `auth/downloads.py`）：把问答与快报能力以 MCP 工具暴露给外部系统，挂载在同一个后端的 `/mcp`。
+  **三个工具**：`ask`（无状态问答，调用方自带 history，只返回最终结论文本，不返回模型的思考过程与
+  工具轨迹，需要大产物时用 `include_data=true`）、`generate_briefing`（默认模板快报，返回**带有效期
+  的签名下载链接**）、`list_datasets`（只读列出已登记期次与可用智能体）。
+  **不维护用户会话**：问答走 `ConversationSession(store=None)` 的内存上下文，不写会话表，因此没有
+  「内存状态绑单进程」的限制；多轮上下文与历史由调用方自己维护、每轮回传。**只记审计**：每次 `ask`
+  往 `geoagent.mcp_calls` 写一条「提问 + 最终回复」（外加调用方、透传用户标识、期次、路由、耗时、
+  是否成功），不存过程消息。
+  **鉴权各管各的**：MCP 接口的令牌由 **MCP 层自己校验**（SDK 的 `TokenVerifier`：
+  `GEOAGENT_MCP_TOKENS` 配 `令牌:调用方名`，请求带 `Authorization: Bearer <token>`；
+  未带或带错返回 401 + `WWW-Authenticate`，未配置任何令牌时一律拒绝）。web 登录中间件只管 `/api`
+  的 Cookie 会话，不参与 MCP 鉴权；MCP 令牌也只对 `/mcp` 有效（拿它调 `/api/conversations` 仍是 401）。
+  最终用户身份用请求头 `X-GeoAgent-User` 透传，只进审计不做隔离。
+  **快报下载**：`GET /api/files/reports/{文件名}` 自己校验凭据——登录 Cookie 或
+  `?e=<过期时间>&s=<签名>` 的一次性链接（外部前端的浏览器直接点开即可下载，不需要把主令牌
+  下发给浏览器）；中间件只把该路径列入「自己负责鉴权」的白名单。
+  自检：`scripts/check_mcp.py` 一条命令验证存活、401 鉴权、令牌不越权、握手、工具发现、期次、
+  快报签名下载与真实问答（`--skip-ask --skip-briefing` 可只做连通性检查），退出码非 0 即不可用。
+  已知限制：本机 stdio MCP（`mcp_server.py`）在 `GEOAGENT_AUTH_MODE=ticket` 下会因内部的 `/api`
+  调用没有登录态而失败，需要它的话要么用 dev 模式，要么把那批工具改成直接调用内部函数。
+
 - **服务层**（`server/`）：REST（会话 CRUD、模型切换、发消息）+ WebSocket 流式事件
   （token / route / tool_call / tool_result / artifact / message / error / turn_end）。
-- **验证**：89 个 pytest 用例全部通过；7 个 golden 用例在 qwen3.7-max-2026-06-08
-  下真实跑通（7/7）。
+- **验证**：298 个 pytest 用例（本次新增入口验证 9 个）；7 个 golden 用例在
+  qwen3.7-max-2026-06-08 下真实跑通（7/7）。本机环境下 4 个 Word 回填用例因临时目录
+  `os.replace` 报拒绝访问而失败，改动前的干净副本同样失败（环境问题，与代码无关）。
 - **前端骨架**（`frontend/`）：左侧历史会话列表 + 右侧会话窗口；流式展示
   token / 路由 / 工具调用卡片（运行中/完成/失败）；GeoJSON 用 OpenLayers
   内嵌小地图渲染、表格用 HTML 表格渲染；会话级模型切换下拉框；Vite 代理
@@ -160,11 +225,12 @@ GeoAgent 是一个**通过自然语言对话完成地理空间分析与业务问
 - PyQGIS 真实空间分析（必须以 worker 进程方式接入，禁止直接 import 进 FastAPI 进程）
 - 长期记忆（记忆类型、检索、注入）
 - 工具失败兜底机制（重试 → 换工具 → 澄清 → 询问用户）
-- 文件上传（shp / GeoJSON / CSV）与真实数据集管理
+- 文件上传与数据集管理：套合工作台已支持 Shapefile 套装 / ZIP 上传并入库成期次，其余任意数据集管理待办
 - 正式 TBLX→三大类映射（当前为默认模糊模板，待业务规则下发后替换）
 - 快报扩展：违法认定的官方审批数据接入（当前预警段落为“疑似”口径）、自定义单位切换
 - 前端完善：更多 artifact 类型（图片/图表）、地图交互、多轮上下文展示
-- 多用户认证/权限、日志与可观测性
+- 权限分级（按 Role/NodesAuth 限制套合入库、删除期次等重操作）、快报文件按用户隔离、
+  日志与可观测性
 
 ## 3. 目录结构
 
@@ -183,7 +249,11 @@ GeoAgent/
 │       │   ├── llm.py           # LLMService：多模型、流式、工具调用归一化
 │       │   ├── context.py       # ConversationContext：每会话状态（替代全局 shared）
 │       │   └── events.py        # 流式事件定义
+│       ├── auth/                # 入口验证与用户体系（票据校验/会话凭据/中间件/签名下载/审计）
 │       ├── datasets.py          # 期次数据集注册表（一张套合表 = 一期数据）
+│       ├── stateless.py         # 无状态问答执行（MCP 用：不落会话，只记审计）
+│       ├── mcp_http.py          # MCP 对外接口（Streamable HTTP：ask / 快报 / 期次）
+│       ├── mcp_server.py        # 本机 stdio MCP（快报工作流，面向本机客户端）
 │       ├── prematch.py          # 标准问题指标预匹配（命中即确定性执行，未命中转自由 SQL）
 │       ├── skills.py            # 技能加载器（扫描 / 目录 / load_skill）
 │       ├── tools/               # 工具注册与执行
@@ -205,8 +275,15 @@ GeoAgent/
 │       │   └── docx_styles.py   # 写回样式兜底（上传模板缺内置样式时不报错）
 │       ├── memory/              # 记忆与会话
 │       │   ├── session.py       # 短期消息窗口（裁剪/摘要/清理）
-│       │   ├── store.py         # JSONL 会话存储
+│       │   ├── store.py         # 会话存储（PostgreSQL 实现 + 内存实现）
 │       │   └── memory.py        # 长期记忆接口（占位）
+│       ├── overlay/             # 套合入库（前后时相切分 → 一期套合表）
+│       │   ├── spec.py          # 图层规范、必填字段、表名与期次命名
+│       │   ├── layers.py        # 矢量读取（编码/未闭合环/坐标系兜底）
+│       │   ├── ddl.py           # 目标表建表、索引、注释 SQL
+│       │   ├── db.py            # 写入型数据库句柄（与只读网关分离）
+│       │   ├── runner.py        # 套合流程编排（解析→暂存→切分→标记→入库→登记）
+│       │   └── registry.py      # 套合完成后登记期次（datasets.json）
 │       ├── analysis/            # 共享空间分析核心（数据集/网格/路网/E2SFCA）
 │       ├── agents/              # 业务智能体与图编排
 │       │   ├── router.py        # 意图路由
@@ -217,15 +294,19 @@ GeoAgent/
 │       │   └── graph.py         # build_geo_graph() 默认图
 │       └── server/              # FastAPI 入口
 │           ├── app.py           # create_app()
+│           ├── auth_routes.py   # 入口验证接口（ticket 换登录态 / 当前用户 / 退出）
 │           ├── routes.py        # REST + WebSocket
+│           ├── overlay_routes.py # 套合上传、任务进度与期次查询接口
 │           └── schemas.py       # API 请求/响应模型
 ├── frontend/                    # Vue3 + Vite + OpenLayers
 │   ├── vite.config.js           # /api 代理（REST + WS）到后端
 │   ├── scripts/smoke.mjs        # 端到端冒烟脚本（需前后端已启动）
 │   └── src/
 │       ├── api/client.js        # REST 封装 + WebSocket 事件入口
+│       ├── auth.js              # 入口验证：ticket 换登录态 + 当前用户
 │       ├── stores/chat.js       # 轻量响应式会话 store
 │       ├── toolLabels.js        # 工具英文标识 → 前端中文名
+│       ├── mapConfig.js         # 底图配置（天地图 WMTS + OSM 回退）
 │       ├── components/          # 会话列表/窗口/气泡/工具卡片/DocxPreview/Artifact 渲染
 │       └── style.css            # 全局样式
 ├── skills/                      # 技能目录（每个子目录一个技能：{name}/SKILL.md）
@@ -283,8 +364,11 @@ GeoAgent/
   1. 在 `geoagent/tools/` 下写函数，用 `@register_tool(name, description, params)`
      注册，`params` 传 Pydantic 模型（自动生成 schema 并校验参数）；
   2. 返回 `ToolResult(content=给LLM的文本摘要, artifacts=[Artifact(kind, data)])`；
-     完整数据放 artifacts，content 只放摘要（超长会被截断）；
+     完整数据放 artifacts，content 只放摘要（超长会被截断）；table artifact 的列名用中文，面积列走 `tools/units.py`；
   3. 在对应业务 Agent 的工具列表中加入（SQL 类工具走受控层 `tools/pg.py`）；
+     同时在 `frontend/src/toolLabels.js` 的 `TOOL_LABELS` 登记卡片中文名——工具卡片只展示
+     中文名（未登记时兜底显示“工具调用”，英文调用名仅在悬浮提示里）；
+     `backend/tests/test_tool_labels.py` 会校验“已注册工具都有中文名”，漏登记会直接失败；
   4. SQL 查询类工具必须走受控执行层（见 4.2），不得裸执行 LLM 生成的任意 SQL。
   5. 高频/明确口径的统计模式建议做成**确定性工具**（参考 `tools/stat.py`：后端预写
      SQL、Pydantic 参数、返回中文表格 artifact），并在 SQLAgent 提示词第 5 节登记。
@@ -340,7 +424,29 @@ GeoAgent/
 - 流式状态约定：`turn_start` 创建流式助手消息，`token` 逐字追加，`tool_call`
   生成工具卡片，`tool_result` 更新卡片状态，`artifact` 挂到最近的工具卡片下，
   `turn_end` 后以服务端持久化消息为准重建列表。
-- UI 文案使用中文；组件按职责拆分（列表/窗口/气泡/卡片/渲染器），
+- **底图统一走 `src/mapConfig.js`**：天地图 WMTS（矢量底图 `vec_c` + 中文注记 `cva_c`，
+  同一密钥轮询 t0-t7 子域），密钥优先取前端环境变量 `VITE_TIANDITU_TOKEN`、缺省用内置 key；
+  **坐标系必须用经纬度**：天地图 `c` 矩阵集实测是 EPSG:4490 经纬度网格（能力文档
+  TopLeftCorner=90/-180、第 1 级 2×1 瓦片），所以地图 View 与 GeoJSON 都用 EPSG:4326、
+  瓦片分辨率取 `360/256/2^z`；按 Web Mercator 建网格会请求到空白瓦片，导致底图与数据对不上；
+  底图**只用天地图**（瓦片加载失败仅在控制台告警、地图容器底色透出，不切其它底图服务）。
+  新增地图组件复用 `createBaseLayers()`，
+  不要各自创建底图图层。注意：浏览器端密钥必然打进前端产物，请在天地图控制台按域名做白名单限制。
+- **会话隔离**：切换 / 新建会话时，异步回包与旧 WebSocket 事件必须按"发起时的会话 id"判废
+  （`stores/chat.js` 的 `selectConversation` / `refreshMessages` / `connect` / `switchModel`），
+  否则旧会话的消息或流式事件会串进新会话；行为回归见 `frontend/scripts/check-chat-store.mjs`
+  （`backend/tests/test_chat_store_race.py` 会调用，本机无 node 时跳过）。
+- **不要用 JS 内置对象名做 import 绑定**：OpenLayers 的 `Map` 必须写成 `OlMap`。遮蔽内置 `Map`
+  会让 `new Map()` 静默变成 OpenLayers 地图对象，组件卸载时抛错、Vue 卸载流程中断、旧 DOM 残留
+  （曾导致"新建会话仍显示上一段对话"）；`backend/tests/test_frontend_guards.py` 会静态拦截。- UI 文案使用中文：
+  - 工具卡片名：新工具必须在 `frontend/src/toolLabels.js` 登记中文名（`backend/tests/test_tool_labels.py` 会校验）；
+  - 卡片标题：后端 `artifact.name` 是给程序用的英文标识符（报告链路按它取数），
+    展示统一走 `frontend/src/artifactLabels.js` 的 `artifactLabel(name, kind)`——
+    含汉字的名称原样使用，已登记的英文标识符翻译为中文，未登记的按卡片类型兜底，
+    保证卡片上不出现英文；
+  - 表格字段名：工具产出的 table artifact 列名必须中文（面积列统一走 `tools/units.py` 换算成亩）；
+    自由 SQL 结果由 `tools/labels.py` 的 `humanize_table` 翻译表头与 TBLX 编码。
+  组件按职责拆分（列表/窗口/气泡/卡片/渲染器），
   单个组件不超过约 200 行。
 - 联调命令：`npm run dev` 启动开发服务器；`npm run build` 验证可编译；
   端到端冒烟用 `node scripts/smoke.mjs`（真实调用模型，仅手动执行）。
@@ -355,7 +461,7 @@ GeoAgent/
 | `token` | 后端→前端 | `delta` | 流式增量文本 |
 | `tool_call` | 后端→前端 | `id`, `name`, `arguments` | 正在调用工具 |
 | `tool_result` | 后端→前端 | `id`, `name`, `is_error`, `content` | 工具结果摘要 |
-| `artifact` | 后端→前端 | `kind`, `name`, `data` | 可视化产物（geojson / table / chart / file 等）；geojson 可带 `data.style`（预警图斑为红色描边 + 半透明红填充） |
+| `artifact` | 后端→前端 | `kind`, `name`, `data` | 可视化产物（geojson / table / chart / file 等）；geojson 可带 `data.style`（预警图斑为红色描边 + 半透明红填充）与 `data.linked_table`（`{columns, rows, feature_key, row_key}`，前端据此实现表格行 ↔ 图斑的定位高亮联动） |
 | `subagent_start` | 后端→前端 | `id`, `prompt` | 子 Agent 开始运行（task） |
 | `subagent_end` | 后端→前端 | `id`, `is_error`, `content` | 子 Agent 结束并返回最终文本 |
 | `message` | 后端→前端 | `role`, `content`, `model` | 最终助手消息 |
