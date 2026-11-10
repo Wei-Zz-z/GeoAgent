@@ -9,6 +9,7 @@
       <div><span>可达道路合计</span><strong>{{ stats?.road_length_m ?? '未记录' }}<small> 米</small></strong></div>
       <div><span>面内其他机构</span><strong>{{ stats?.other_facility_count ?? '未记录' }}<small> 个</small></strong></div>
     </div>
+    <ElderAccessIndicators :data="data" :minutes="minutes" />
     <ElderAccessTrend :rows="data.statistics" :minutes="minutes" @select-time="$emit('select-time', $event)" />
     <section v-if="data.population_reference" class="summary-section">
       <h4>2020年总人口估算 <small>非老年人口</small></h4>
@@ -39,6 +40,7 @@
 
 <script setup>
 import ElderAccessTrend from './ElderAccessTrend.vue'
+import ElderAccessIndicators from './ElderAccessIndicators.vue'
 import { areaMu } from '../elderAccessPresentation.js'
 defineProps({ data: { type: Object, required: true }, stats: Object, minutes: Number, travelLabel: String, selectedBoundary: String, boundaryCodes: { type: Array, default: () => [] } })
 defineEmits(['select-time', 'select-boundary'])

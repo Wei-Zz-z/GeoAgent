@@ -138,7 +138,7 @@ async def test_registered_tool_and_artifact_contract(monkeypatch: pytest.MonkeyP
     search = await search_elder_facilities('测试养老院')
     assert 'test' in search.content
     result = await analyze_elder_accessibility('test')
-    assert [a.kind for a in result.artifacts] == ['geojson', 'table']
+    assert [a.kind for a in result.artifacts] == ['geojson', 'table', 'table']
     assert result.artifacts[1].data['columns'][1] == '单次步行距离预算（米）'
     assert [r[1] for r in result.artifacts[1].data['rows']] == [350, 700, 1050, 1400, 1750, 2100]
     assert len(result.artifacts[0].data['statistics']) == 6

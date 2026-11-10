@@ -80,6 +80,11 @@ async def analyze_elder_accessibility(facility_id: str, thresholds: list[float] 
                 'columns': ['分钟', '概略面内估算人口', '研究区模型未覆盖人口', '研究区人口占比（%）'],
                 'rows': [[r['minutes'], r['covered_population_2020'], r['model_uncovered_population_2020'],
                           r['population_coverage_percent']] for r in result['rows']]}))
+        if result.get('monitoring_indicators'):
+            response.artifacts.append(Artifact(kind='table', name='养老相关监测指标与数据状态', data={
+                'columns': ['指标', '数值', '单位', '状态说明'],
+                'rows': [[item['name'], item.get('value'), item['unit'], item['reason']]
+                         for item in result['monitoring_indicators']]}))
         return response
     return await asyncio.to_thread(run)
 

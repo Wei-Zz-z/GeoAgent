@@ -162,6 +162,7 @@ import Icon from './Icon.vue'
 import ElderAccessSummary from './ElderAccessSummary.vue'
 import ElderAccessNotes from './ElderAccessNotes.vue'
 import { areaMu } from '../elderAccessPresentation.js'
+import { monitoringExportConclusions, conclusionLayout } from '../elderMonitoringIndicators.js'
 import { elderAccessStyle } from '../elderAccessStyle.js'
 import { artifactLabel } from '../artifactLabels'
 import { MAP_EXTENT, MAP_MAX_ZOOM, MAP_PROJECTION, createBaseLayers } from '../mapConfig'
@@ -247,10 +248,15 @@ async function exportAccessMap(withBase) {
       conclusions.push('按2020年人口栅格估算，概略范围内约有 ' + stats.covered_population_2020 + ' 人（全年龄人口）。')
     }
     if (!conclusions.length) conclusions.push('本档暂无可用的道路、历史边界或人口统计。')
-    const pageHeight = mapTop + side + 54
+    conclusions.push(...monitoringExportConclusions(props.artifact.data))
+    const times = showAllTimes.value ? accessTimes.value : [activeMinutes.value]
+    const conclusionTop = mapTop + 188 + Math.ceil(times.length / 3) * 26 + 76
+    const ctx = canvas.getContext('2d')
+    ctx.font = '15px sans-serif'
+    const { lines: conclusionLines, pageHeight } = conclusionLayout(
+      conclusions, value => ctx.measureText(value).width, conclusionTop, mapTop + side + 54)
     canvas.width = pageWidth * 2
     canvas.height = pageHeight * 2
-    const ctx = canvas.getContext('2d')
     ctx.scale(2, 2)
     ctx.fillStyle = '#fff'
     ctx.fillRect(0, 0, pageWidth, pageHeight)
@@ -298,7 +304,6 @@ async function exportAccessMap(withBase) {
     ctx.restore()
     ctx.strokeStyle = '#aebfb9'
     ctx.strokeRect(margin + 0.5, mapTop + 0.5, side - 1, side - 1)
-    const times = showAllTimes.value ? accessTimes.value : [minutes]
     label(travelLabel.value + ' · ' + minutes + '分钟', sidebar, mapTop + 24, 'bold 20px sans-serif')
     label('概略覆盖面积', sidebar, mapTop + 61)
     label(areaMu(stats?.coverage_area_m2, stats?.coverage_area_mu) + ' 亩', sidebar, mapTop + 98, 'bold 28px sans-serif')
@@ -310,24 +315,18 @@ async function exportAccessMap(withBase) {
       ctx.fillRect(x, y - 11, 14, 12)
       label(t + '分钟', x + 20, y)
     })
-    let y = mapTop + 188 + Math.ceil(times.length / 3) * 26
+    let y = conclusionTop - 76
     label('红点为设施起点，实线为可达道路。', sidebar, y)
     label('色面表示模型估算的覆盖范围。', sidebar, y + 23)
     y += 76
     label('统计结论', sidebar, y, 'bold 17px sans-serif')
     ctx.font = '15px sans-serif'
-    for (const statement of conclusions) {
+    for (const lines of conclusionLines) {
       y += 30
-      let line = ''
-      for (const ch of statement) {
-        if (ctx.measureText(line + ch).width > 290) {
-          label(line, sidebar, y, '15px sans-serif')
-          y += 22
-          line = ''
-        }
-        line += ch
-      }
-      label(line, sidebar, y, '15px sans-serif')
+      lines.forEach((line, index) => {
+        if (index) y += 22
+        label(line, sidebar, y, '15px sans-serif')
+      })
     }
     label((withBase ? '底图与路网' : '路网') + ' © OpenStreetMap contributors · openstreetmap.org/copyright  |  设施位置及通行条件待核实', margin, pageHeight - 20)
     const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'))

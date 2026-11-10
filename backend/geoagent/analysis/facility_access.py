@@ -22,6 +22,7 @@ from .district_overlay import district_boundary, intersection_statistics
 from .township_overlay import township_boundaries, township_intersections, township_uncovered
 from .population_overlay import PopulationOverlay
 from .village_overlay import village_boundaries, village_intersections, village_display_features
+from .residential_coverage import ResidentialCoverage, monitoring_indicators
 
 
 def data_directory() -> Path:
@@ -117,6 +118,7 @@ class FacilityAccess:
         township_reference, townships = township_boundaries(data_directory(), self.metadata['metric_crs'])
         village_reference, village_units, village_tree = village_boundaries(data_directory(), self.metadata['metric_crs'])
         population = PopulationOverlay(data_directory(), boundary, self.metadata['metric_crs'])
+        residential = ResidentialCoverage(data_directory(), boundary, self.metadata['metric_crs'])
         facility_points = [(f['id'], transform(self.project, Point(f['coordinates'])))
                            for f in self.facilities if f.get('coordinates') and f['id'] != facility_id]
         for minutes in sorted(set(thresholds), reverse=True):
@@ -156,6 +158,7 @@ class FacilityAccess:
                 rows[-1].update(township_intersections(Point(), townships, township_reference['available']))
                 rows[-1].update(village_intersections(Point(), village_units, village_tree, village_reference['available']))
                 rows[-1].update(population.summarize(Point()))
+                rows[-1].update(residential.summarize(Point()))
                 _, uncovered_stats = township_uncovered(Point(), townships, township_reference['available'])
                 rows[-1].update(uncovered_stats)
                 continue
@@ -185,6 +188,7 @@ class FacilityAccess:
             rows[-1].update(township_intersections(coverage, townships, township_reference['available']))
             rows[-1].update(village_intersections(coverage, village_units, village_tree, village_reference['available']))
             rows[-1].update(population.summarize(coverage))
+            rows[-1].update(residential.summarize(coverage))
             remaining, uncovered_stats = township_uncovered(coverage, townships, township_reference['available'])
             rows[-1].update(uncovered_stats)
             if not remaining.is_empty:
@@ -207,6 +211,7 @@ class FacilityAccess:
         ordered_rows = sorted(rows, key=lambda row: row['minutes'])
         if len(ordered_rows) > 1 and ordered_rows[-1]['road_length_m'] == ordered_rows[-2]['road_length_m']:
             notice += '较长时间档的可达路段未增加，可能受当前连通分量或路网缺失限制；不代表已覆盖全部周边。'
+        indicators = monitoring_indicators(ordered_rows, self.mode, residential.metadata)
         return {'facility': facility, 'metadata': self.metadata, 'speed_kmh': speed_kmh,
                 'travel_mode': self.mode,
                 'community_reference': community_reference,
@@ -214,6 +219,8 @@ class FacilityAccess:
                 'township_reference': township_reference,
                 'village_reference': village_reference,
                 'population_reference': population.metadata,
+                'residential_reference': residential.metadata,
+                'monitoring_indicators': indicators,
                 'access_distance_m': round(access_m, 2), 'direction': '从设施出发', 'notice': notice,
                 'rows': sorted(rows, key=lambda r: r['minutes']),
                 'geojson': {'type': 'FeatureCollection', 'features': features,
@@ -224,6 +231,8 @@ class FacilityAccess:
                             'township_reference': township_reference,
                             'village_reference': village_reference,
                             'population_reference': population.metadata,
+                            'residential_reference': residential.metadata,
+                            'monitoring_indicators': indicators,
                             'thresholds': sorted(set(thresholds))}}
 
 
