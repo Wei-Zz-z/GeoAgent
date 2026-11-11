@@ -66,7 +66,7 @@
         <div v-if="!chat.messages.length" class="welcome">
           <div class="welcome-icon"><Icon name="search" :size="24" /></div>
           <div class="welcome-title">有什么可以帮你？</div>
-          <div class="welcome-sub">输入自然语言，进行土地变化查询、统计分析与快报生成</div>
+          <div class="welcome-sub">{{ chat.agentId === 'elder_care' ? '查找养老设施，选择步行或简化驾车试算，查看5至30分钟可达范围' : '输入自然语言，进行土地变化查询、统计分析与快报生成' }}</div>
           <div class="suggestions">
             <button
               v-for="s in suggestions"
@@ -90,7 +90,7 @@
 
     <footer class="composer-area">
       <div class="composer">
-        <div class="composer-scope">
+        <div v-if="chat.agentId !== 'elder_care'" class="composer-scope">
           <div class="dataset-block">
             <span class="dataset-label">数据表</span>
             <div ref="datasetEl" class="model-picker">
@@ -233,18 +233,17 @@ function closeWorkspace() {
 }
 let tipTimer = null
 
-// 示例问题：养老场景未启用时（后端智能体清单里没有 elder_care）不展示对应示例
-const suggestions = computed(() => {
-  const items = [
-    '耕地转为建设用地的面积是多少？',
-    '按三大类统计各类土地变化面积',
-    '生成本期土地变化监测快报',
-  ]
-  if (chat.agents.some((a) => a.id === 'elder_care')) {
-    items.push('分析养老机构的步行可达性')
-  }
-  return items
-})
+const suggestions = computed(() => chat.agentId === 'elder_care' ? [
+  '当前可以分析哪些地区的养老设施？',
+  '列出拱墅区的养老设施',
+  '查找杭州市社会福利中心',
+] : [
+  '耕地转为建设用地的面积是多少？',
+  '按三大类统计各类土地变化面积',
+  '生成本期土地变化监测快报',
+  ...(chat.agents.some(a => a.id === 'elder_care') ? ['分析养老机构的步行可达性'] : []),
+])
+
 
 const currentConv = computed(
   () => chat.conversations.find((c) => c.id === chat.currentId) || null,

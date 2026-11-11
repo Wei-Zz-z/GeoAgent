@@ -24,7 +24,7 @@ class AgentSpec:
 
 AGENT_SPECS: tuple[AgentSpec, ...] = (
     AgentSpec("sql", "土地变化统计问答", "地类变化统计、面积流向、快报生成与预警图斑上图"),
-    AgentSpec("elder_care", "养老可达性评估", "养老机构步行可达性、供需匹配分析"),
+    AgentSpec("elder_care", "养老可达性评估", "检索养老设施，分析5至30分钟步行或简化驾车可达范围（试点）"),
     AgentSpec("chat", "通用对话", "概念解释、一般性问答与操作引导"),
 )
 
